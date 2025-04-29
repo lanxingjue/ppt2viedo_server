@@ -157,7 +157,7 @@ def generate_subtitles(
         return False
     except Exception as e:
         logger.error(f"合并音频时发生错误: {e}", exc_info=True)
-        if concat_list_path.exists(): concat_list_list.unlink(missing_ok=True)
+        if concat_list_path.exists(): concat_list_path.unlink(missing_ok=True)
         if combined_audio_path.exists(): combined_audio_path.unlink(missing_ok=True)
         return False
 
@@ -176,7 +176,11 @@ def generate_subtitles(
         asr_start_time = time.time()
         # 加载模型，PyInstaller Hook 应该处理了模型的捆绑或下载
         # download_root 参数可以指定模型下载路径，默认是 ~/.cache/whisper
-        model = stable_whisper.load_model(whisper_model_name)
+        # model = stable_whisper.load_model(whisper_model_name)
+        # 尝试强制 CPU 加载和推理
+        model = stable_whisper.load_model(whisper_model_name, device="cpu") # <--- 尝试指定 device="cpu"
+        logger.info(f"已加载 Whisper 模型 '{whisper_model_name}'，使用设备: {model.device}") # 记录实际设备
+
         logger.info("开始语音识别 (ASR)...")
 
         # 执行转录，verbose=False 减少输出
@@ -186,6 +190,8 @@ def generate_subtitles(
             fp16=False, # 通常设为 False 以支持更多 CPU 或非 CUDA GPU
             verbose=False,
             # language='zh', # 可选，如果确定语言
+            # 尝试在 transcribe 中也指定 device
+            # device="cpu" # <--- 尝试在这里也指定
         )
         asr_end_time = time.time()
         logger.info(f"语音识别完成，耗时 {asr_end_time - asr_start_time:.2f} 秒。")

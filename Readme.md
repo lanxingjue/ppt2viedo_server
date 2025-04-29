@@ -56,3 +56,20 @@ python -m flask run --host=0.0.0.0 --port=5000
 # --bind 0.0.0.0:8000: 绑定到所有接口和 8000 端口
 # app:app: 指定 Flask 应用实例 (在 app.py 文件中的 app 变量)
 # gunicorn --workers 4 --bind 0.0.0.0:8000 app:app
+
+
+
+——————————
+linux需要额外安装的内容
+apt install ffmpeg
+apt install libreoffice
+apt install poppler-utils
+
+
+------
+字体问题，pdf转图片，中文乱码。
+sudo apt update
+sudo apt install fonts-wqy-zenhei # 文泉驿正黑
+sudo apt install fonts-wqy-microhei # 文泉驿微米黑
+sudo apt install fonts-arphic-ukai # 文鼎PL楷体
+sudo apt install fonts-arphic-uming # 文鼎PL明体
