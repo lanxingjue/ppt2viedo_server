@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>任务状态 - PPT 转视频</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>任务状态</h1>
+        <p class="subtitle">任务 ID: <span id="task-id">{{ task_id }}</span></p>
+
+        <div class="status-box">
+            <p>当前状态: <span id="task-status" class="status-text">{{ initial_status }}</span></p>
+            <!-- 可以添加进度条，如果 Celery 任务有发送进度 -->
+            <!-- <div class="progress-bar">
+                <div class="progress-bar-fill" id="task-progress" style="width: 0%;"></div>
+            </div> -->
+            <p id="status-message"></p> <!-- 显示详细状态信息或错误 -->
+            <div id="download-link" class="download-link" style="display: none;">
+                <p>转换完成！</p>
+                <a href="#" id="video-download-url" class="btn-download">下载视频</a>
+            </div>
+             <div id="error-message" class="message error" style="display: none;">
+                <p>任务失败:</p>
+                <p id="error-details"></p>
+            </div>
+        </div>
+
+        <p><a href="{{ url_for('index') }}" class="btn-back">返回上传页</a></p>
+    </div>
+
+    <script>
+        const taskId = document.getElementById('task-id').textContent;
+        const statusText = document.getElementById('task-status');
+        const statusMessage = document.getElementById('status-message');
+        const downloadLinkDiv = document.getElementById('download-link');
+        const videoDownloadUrl = document.getElementById('video-download-url');
+        const errorMessageDiv = document.getElementById('error-message');
+        const errorDetails = document.getElementById('error-details');
+
+        // 根据状态文本设置颜色
+        function updateStatusDisplay(state) {
+             let color = '#cccccc'; // Default
+             if (state === 'PENDING') color = '#ffff00'; // Yellow/Orange
+             else if (state === 'STARTED') color = '#00ffff'; // Cyan
+             else if (state === 'PROCESSING') color = '#00ffff'; // Cyan
+             else if (state === 'SUCCESS') color = '#00ff00'; // Green
+             else if (state === 'FAILURE') color = '#ff0000'; // Red
+             statusText.textContent = state;
+             statusText.style.color = color;
+        }
+
+        // 初始化状态显示
+        updateStatusDisplay(statusText.textContent);
+
+
+        // 轮询任务状态
+        function checkStatus() {
+            fetch(`/tasks/${taskId}/status`)
+                .then(response => response.json())
+                .then(data => {
+                    updateStatusDisplay(data.state);
+
+                    if (data.state === 'PENDING' || data.state === 'STARTED' || data.state === 'PROCESSING') {
+                        // 任务仍在进行中，继续轮询
+                        statusMessage.textContent = `任务状态: ${data.state}...`;
+                        if (data.state === 'PROCESSING' && data.meta && data.meta.stage) {
+                             statusMessage.textContent += ` (阶段: ${data.meta.stage})`;
+                             // 可以根据 meta.stage 更新更详细信息或模拟进度条
+                        }
+                        setTimeout(checkStatus, 2000); // 每 2 秒轮询一次
+                    } else if (data.state === 'SUCCESS') {
+                        statusMessage.textContent = '任务处理成功！';
+                        downloadLinkDiv.style.display = 'block';
+                        if (data.download_url) {
+                             videoDownloadUrl.href = data.download_url;
+                        } else if (data.result) {
+                             // 如果 result 是直接的路径，也可以尝试构造下载链接
+                             videoDownloadUrl.href = `/output/${encodeURIComponent(data.result)}`; // 假设 output 路由
+                             // 或者直接显示文件名
+                             videoDownloadUrl.textContent = `下载: ${data.result.split('/').pop()}`;
+                        } else {
+                             videoDownloadUrl.textContent = '下载链接不可用';
+                        }
+
+                    } else if (data.state === 'FAILURE') {
+                        statusMessage.textContent = '任务处理失败。';
+                        errorMessageDiv.style.display = 'block';
+                        errorDetails.textContent = data.error || '未知错误';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error checking task status:', error);
+                    statusMessage.textContent = '无法获取任务状态。请稍后刷新页面。';
+                    statusText.textContent = 'ERROR';
+                    statusText.style.color = '#ff0000';
+                    // 不再继续轮询
+                });
+        }
+
+        // 页面加载后开始轮询
+        window.onload = checkStatus;
+
+    </script>
+</body>
+</html>

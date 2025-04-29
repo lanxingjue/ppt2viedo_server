@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PPT 转视频 - 霓虹赛博</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>PPT 转视频</h1>
+        <p class="subtitle">将您的 PowerPoint 演示文稿转换为霓虹炫彩视频</p>
+
+        {% if error %}
+            <div class="message error">{{ error }}</div>
+        {% endif %}
+
+        <form action="{{ url_for('index') }}" method="post" enctype="multipart/form-data" class="upload-form">
+            <div class="form-group">
+                <label for="pptx_file" class="file-label">选择 PPTX 文件 (.pptx)</label>
+                <input type="file" id="pptx_file" name="pptx_file" accept=".pptx" required class="file-input">
+                <span class="file-name" id="file-name">未选择文件</span>
+            </div>
+
+            <div class="form-group">
+                 <label for="voice_id" class="voice-label">选择旁白语音:</label>
+                 <select id="voice_id" name="voice_id" required class="voice-select">
+                     {% if voices %}
+                         {% for voice in voices %}
+                             <option value="{{ voice.get('id') }}">{{ voice.get('name', '未知语音') }} ({{ voice.get('lang', '?') }})</option>
+                         {% endfor %}
+                     {% else %}
+                          <option value="">暂无可用语音 (请检查后台配置)</option>
+                     {% endif %}
+                 </select>
+             </div>
+
+
+            <button type="submit" class="btn-submit">
+                <span class="btn-text">开始转换</span>
+                <span class="btn-glow"></span>
+            </button>
+        </form>
+
+        <p class="note">注意: 转换过程需要一定时间，请耐心等待。</p>
+        <p class="note">请确保服务器环境已安装并配置好 LibreOffice、Poppler 和 FFmpeg。</p>
+        <p class="note">语音合成需要服务器联网访问微软 Edge TTS 服务。</p>
+
+
+    </div>
+
+    <script>
+        // 显示选中的文件名
+        const fileInput = document.getElementById('pptx_file');
+        const fileNameSpan = document.getElementById('file-name');
+
+        fileInput.addEventListener('change', function() {
+            if (fileInput.files.length > 0) {
+                fileNameSpan.textContent = fileInput.files[0].name;
+            } else {
+                fileNameSpan.textContent = '未选择文件';
+            }
+        });
+    </script>
+</body>
+</html>

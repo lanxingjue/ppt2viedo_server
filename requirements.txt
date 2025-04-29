@@ -1,0 +1,14 @@
+Flask>=2.0
+celery>=5.0
+redis>=4.0
+python-pptx
+moviepy
+stable-ts
+Pillow
+pdf2image # 用于 LibreOffice 导出
+mutagen
+edge-tts # tts_manager_edge 依赖
+aiohttp # edge-tts 依赖
+charset-normalizer # aiohttp 可能依赖
+opencc-python-reimplemented # 如果需要繁简转换
+gunicorn # WSGI 服务器 (部署时用)

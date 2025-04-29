@@ -1,0 +1,207 @@
+/* static/css/style.css */
+
+:root {
+    --bg-color: #0a0a0a;
+    --text-color: #00ffff; /* Cyan neon */
+    --accent-color: #ff00ff; /* Magenta neon */
+    --glow-color: #00ffff;
+    --glow-spread: 5px;
+    --error-color: #ff0000;
+    --success-color: #00ff00;
+    --warning-color: #ffff00;
+}
+
+body {
+    font-family: 'Courier New', Courier, monospace; /* 模拟终端字体 */
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    margin: 0;
+    padding: 20px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    box-sizing: border-box;
+}
+
+.container {
+    background-color: #1a1a1a; /* 深灰背景 */
+    border: 2px solid var(--accent-color); /* 紫色边框 */
+    box-shadow: 0 0 10px var(--accent-color); /* 紫色外发光 */
+    padding: 40px;
+    border-radius: 10px;
+    text-align: center;
+    max-width: 600px;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+h1 {
+    color: var(--glow-color);
+    text-shadow: 0 0 5px var(--glow-color), 0 0 10px var(--glow-color), 0 0 15px var(--glow-color), 0 0 20px var(--glow-spread);
+    animation: flicker 1.5s infinite alternate; /* 添加闪烁动画 */
+}
+
+.subtitle {
+    color: var(--text-color);
+    margin-top: -10px;
+    margin-bottom: 30px;
+}
+
+.upload-form {
+    margin-top: 20px;
+}
+
+.form-group {
+    margin-bottom: 20px;
+    text-align: left;
+}
+
+.file-label, .voice-label {
+    display: block;
+    margin-bottom: 8px;
+    color: var(--accent-color);
+    text-shadow: 0 0 3px var(--accent-color);
+}
+
+.file-input {
+    display: none; /* 隐藏默认文件输入 */
+}
+
+.file-name {
+    display: inline-block;
+    background-color: #333;
+    color: var(--text-color);
+    padding: 10px;
+    border: 1px solid var(--glow-color);
+    border-radius: 4px;
+    margin-left: 10px;
+    min-width: 200px;
+    text-overflow: ellipsis; /* 文本溢出显示省略号 */
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.voice-select {
+     width: calc(100% - 10px); /* 调整宽度 */
+     padding: 10px;
+     border: 1px solid var(--glow-color);
+     background-color: #333;
+     color: var(--text-color);
+     border-radius: 4px;
+     appearance: none; /* 移除默认下拉箭头 */
+     background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%2300ffff%22%20d%3D%22M287%2C114.7L159.1%2C242.6c-4.7%2C4.7-12.3%2C4.7-17%2C0L5.4%2C114.7c-4.7-4.7-4.7-12.3%2C0-17l19.6-19.6c4.7-4.7%2C12.3-4.7%2C17%2C0l113.3%2C113.3l113.3-113.3c4.7-4.7%2C12.3-4.7%2C17%2C0l19.6%2C19.6C291.7%2C102.4%2C291.7%2C110%2C287%2C114.7z%22%2F%3E%3C%2Fsvg%3E");
+     background-repeat: no-repeat;
+     background-position: right 10px top 50%;
+     background-size: 12px auto;
+}
+
+
+.btn-submit, .btn-download, .btn-back {
+    position: relative;
+    display: inline-block;
+    padding: 12px 25px;
+    color: var(--glow-color);
+    font-size: 18px;
+    text-decoration: none;
+    text-transform: uppercase;
+    overflow: hidden;
+    transition: 0.5s;
+    margin-top: 20px;
+    letter-spacing: 3px;
+    background: none;
+    border: 2px solid var(--glow-color);
+    cursor: pointer;
+    border-radius: 5px;
+    font-family: 'Courier New', Courier, monospace;
+}
+
+.btn-submit:hover, .btn-download:hover, .btn-back:hover {
+    background: var(--glow-color);
+    color: var(--bg-color);
+    box-shadow: 0 0 5px var(--glow-color), 0 0 25px var(--glow-color), 0 0 50px var(--glow-color), 0 0 100px var(--glow-color);
+}
+
+.btn-download {
+    background: var(--success-color);
+    border-color: var(--success-color);
+    color: var(--bg-color);
+    box-shadow: 0 0 5px var(--success-color);
+    animation: pulse 1.5s infinite;
+}
+
+.btn-download:hover {
+    background: var(--success-color);
+    box-shadow: 0 0 5px var(--success-color), 0 0 25px var(--success-color), 0 0 50px var(--success-color), 0 0 100px var(--success-color);
+    animation: none;
+}
+
+
+.message {
+    padding: 10px;
+    margin-bottom: 15px;
+    border-radius: 4px;
+    text-align: center;
+    border: 1px solid;
+}
+
+.message.error {
+    background-color: rgba(255, 0, 0, 0.1); /* 半透明红色背景 */
+    color: var(--error-color);
+    border-color: var(--error-color);
+    text-shadow: 0 0 2px var(--error-color);
+}
+.message.success {
+    background-color: rgba(0, 255, 0, 0.1);
+    color: var(--success-color);
+    border-color: var(--success-color);
+    text-shadow: 0 0 2px var(--success-color);
+}
+.message.info {
+    background-color: rgba(0, 255, 255, 0.1);
+    color: var(--text-color);
+    border-color: var(--text-color);
+    text-shadow: 0 0 2px var(--text-color);
+}
+
+.status-box {
+    margin-top: 20px;
+    padding: 20px;
+    border: 1px dashed var(--text-color);
+    border-radius: 5px;
+}
+
+.status-text {
+    font-weight: bold;
+    text-shadow: 0 0 3px;
+}
+
+/* 动画 */
+@keyframes flicker {
+    0%, 18%, 22%, 25%, 53%, 57%, 100% {
+        text-shadow: 0 0 5px var(--glow-color), 0 0 10px var(--glow-color), 0 0 15px var(--glow-color), 0 0 20px var(--glow-spread);
+        opacity: 1;
+    }
+    20%, 24%, 55% {
+        text-shadow: none;
+        opacity: 0.8;
+    }
+}
+
+@keyframes pulse {
+    0% {
+        box-shadow: 0 0 5px var(--success-color);
+    }
+    50% {
+        box-shadow: 0 0 20px var(--success-color), 0 0 40px var(--success-color);
+    }
+    100% {
+        box-shadow: 0 0 5px var(--success-color);
+    }
+}
+
+.note {
+    font-size: 0.9em;
+    color: #aaaaaa;
+    margin-top: 15px;
+}
