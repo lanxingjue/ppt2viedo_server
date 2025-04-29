@@ -69,6 +69,21 @@ if config_path.exists():
 else:
     logging.warning(f"[Flask App] 警告: 配置未找到: {config_path}")
 
+# --- 获取和处理基础输出目录 ---
+# 从 config.ini 读取路径，并转换为绝对路径
+# 这是 Flask 将用于查找下载文件的基础目录
+FLASK_OUTPUT_BASE_DIR = Path(config.get('General', 'base_output_dir', fallback='./output')).resolve()
+logging.info(f"Flask 应用将从基础目录 '{FLASK_OUTPUT_BASE_DIR}' 提供文件下载。")
+
+# 确保下载目录存在 (即使 Worker 会创建，Flask 也需要读权限)
+try:
+    FLASK_OUTPUT_BASE_DIR.mkdir(parents=True, exist_ok=True)
+    logging.info(f"确保 Flask 下载基础目录存在: {FLASK_OUTPUT_BASE_DIR}")
+except OSError as e:
+    logging.error(f"Web 应用无法创建或访问 Flask 下载基础目录 {FLASK_OUTPUT_BASE_DIR}: {e}")
+    # 这不是致命错误，但下载会失败
+
+
 # --- 日志记录配置 (由 Flask 应用加载) ---
 # 这是 Flask Web 服务器的日志，与 Celery Worker 的日志是独立的
 # 在基础配置中已经设置，这里可以根据配置调整级别
@@ -181,7 +196,8 @@ def index():
                 # 任务函数接收的路径应该是 Celery Worker 环境中可以访问的路径
                 task = convert_ppt_to_video_task.apply_async(args=[
                     str(filepath.resolve()), # 传递上传文件的绝对路径
-                    str(app.config['OUTPUT_FOLDER'].resolve()), # 传递最终输出目录的绝对路径
+                    str(FLASK_OUTPUT_BASE_DIR), # <--- 传递来自 config 的绝对路径给 Worker
+                    # str(app.config['OUTPUT_FOLDER'].resolve()), # 传递最终输出目录的绝对路径
                     voice_id # 传递语音 ID
                 ])
                 logging.info(f"Celery 任务已发送，任务 ID: {task.id}")
@@ -273,24 +289,31 @@ def get_task_status(task_id):
 @app.route('/output/<filename>')
 def download_file(filename):
     """提供生成的视频文件下载"""
-    # 从 config.ini 读取基础输出目录
-    output_base_dir = Path(config.get('General', 'base_output_dir', fallback='./output'))
-    logging.debug(f"尝试从目录 '{output_base_dir}' 提供文件 '{filename}' 下载。")
+    # 从 config.ini 读取基础输出目录 (现在我们使用启动时解析好的 FLASK_OUTPUT_BASE_DIR)
+    # output_base_dir = Path(config.get('General', 'base_output_dir', fallback='./output')) # <-- 移除或注释
+    output_base_dir = FLASK_OUTPUT_BASE_DIR # <--- 使用全局变量
 
-    # 确保 filename 是安全的，防止目录穿越
+    logging.info(f"尝试从基础目录 '{output_base_dir}' 提供文件 '{filename}' 下载。") # <-- 这里的日志现在会打印正确路径
+
     safe_filename = secure_filename(filename)
-    # 从配置的基础输出目录提供文件
     try:
-        # 使用 send_from_directory 安全地提供文件
-        return send_from_directory(output_base_dir, safe_filename, as_attachment=True) # as_attachment=True 会触发浏览器下载而不是预览
-    except FileNotFoundError:
-        # 如果文件不存在
-        logging.error(f"请求下载的文件 '{safe_filename}' 未在目录 '{output_base_dir}' 中找到。")
-        return "文件未找到。", 404
-    except Exception as e:
-        logging.error(f"处理文件 '{safe_filename}' 下载时发生错误: {e}", exc_info=True)
-        return "文件下载失败。", 500
+        # 检查文件是否存在于正确的目录下（调试）
+        full_file_path = output_base_dir / safe_filename
+        if not full_file_path.exists():
+            logging.error(f"在预期下载路径 '{full_file_path}' 未找到文件。")
+            # 返回 404 NotFound 异常，让 Flask 处理
+            from werkzeug.exceptions import NotFound
+            raise NotFound()
 
+
+        # 使用 send_from_directory 安全地提供文件
+        return send_from_directory(output_base_dir, safe_filename, as_attachment=True)
+    except FileNotFoundError: # send_from_directory 在文件不存在时会抛出
+         # werkzeug 的 NotFound 会被 Flask 捕获并转为 404 响应
+         pass # 让上面的 NotFound 处理
+    except Exception as e:
+         logging.error(f"处理文件 '{safe_filename}' 下载时发生错误: {e}", exc_info=True)
+         return "文件下载失败。", 500
 
 # --- 错误处理路由 ---
 # 为 404 错误提供一个自定义的模板
