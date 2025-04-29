@@ -202,7 +202,7 @@ def generate_subtitles(
         srt_content = srt_formatter(result)
         if OPENCC_AVAILABLE:
             try:
-                cc = opencc.OpenCC('t2s.json') # 创建转换器 (繁体 -> 简体)
+                cc = opencc.OpenCC('t2s') # 创建转换器 (繁体 -> 简体)
                 srt_content = cc.convert(srt_content) # 执行转换
                 logger.info("成功使用 OpenCC 将字幕内容转换为简体。")
             except Exception as e:
@@ -524,8 +524,6 @@ def add_subtitles(input_video: Path, srt_file: Path, output_video: Path, logger:
          return False
 
     # --- 获取字幕样式配置 ---
-    # 从 config.ini 的 [Video] section 读取 'subtitle_style_ffmpeg' key
-    # 使用一个合理的默认值作为回退
     ffmpeg_style_str = config.get(
         'Video',
         'subtitle_style_ffmpeg',
@@ -534,56 +532,44 @@ def add_subtitles(input_video: Path, srt_file: Path, output_video: Path, logger:
     logger.debug(f"使用的字幕样式 (force_style): {ffmpeg_style_str}")
 
     # --- 准备 FFmpeg filtergraph ---
-    # 正确转义 SRT 文件路径给 FFmpeg filter
-    # FFmpeg filtergraph 路径需要特殊转义
     srt_path_str = str(srt_file.resolve())
-    # 示例转义：将 \ 替换为 /，将 : 替换为 \:，将 ' 替换为 \' 等
-    # 一个更 robust 的方法是使用 FFmpeg 的 "file,..." 语法或创建 ASS 文件
-    # 但对于常见路径，基本转义可能够用
-    if platform.system() == "Windows":
-         # Windows 路径转义 for filtergraph
-         srt_path_escaped_for_filter = srt_path_str.replace('\\', '/').replace(':', r'\:')
-         # 需要双重转义反斜杠 'C:\path\to\sub.srt' -> 'C\\:\\path\\to\\sub.srt'
-         srt_path_escaped_for_filter = srt_path_escaped_for_filter.replace('\\', '\\\\')
-         # 还需要转义单引号
-         srt_path_escaped_for_filter = srt_path_escaped_for_filter.replace("'", "'\\''") # 这通常在整体引用时用
-         # 尝试一种常见写法
-         filter_srt_path = srt_path_str.replace('\\', '/') # 先转换斜杠
-         # 如果路径中有单引号，可能需要更复杂的转义或 file= 选项
-         # filtergraph 参数整体可以用单引号或双引号包裹
-    else:
-         # macOS/Linux 路径转义 for filtergraph
-         # 主要转义单引号
-         filter_srt_path = srt_path_str.replace("'", "'\\''")
+    filter_srt_path_escaped = srt_path_str.replace("'", r"\'") # 转义单引号
 
+    # 将样式字符串内部的单引号也转义
+    styles_escaped = ffmpeg_style_str.replace("'", r"\'")
 
-    # 构建 filtergraph，应用 force_style 和转义后的 SRT 路径
-    # filtergraph = f"subtitles='{filter_srt_path}':force_style='{ffmpeg_style_str}'" # 使用单引号包裹 srt_path_escaped_for_filter
-    # 尝试使用 file= 选项，可能对特殊字符更友好
-    filtergraph = f"subtitles=file='{filter_srt_path}':force_style='{ffmpeg_style_str}'"
+    # --- 构建正确的 filtergraph 字符串 ---
+    # 使用 subtitles 滤镜
+    filter_name = "subtitles"
+    # 参数列表: filename='...', force_style='...'
+    # **选项之间用冒号 : 分隔**
+    filter_options = f"filename='{filter_srt_path_escaped}':force_style='{styles_escaped}'" # <--- 修正这里的语法，使用冒号 :
+
+    # 完整的 -vf 参数值就是 "subtitles=filename='...':force_style='...'"
+    vf_param_value = f"{filter_name}={filter_options}"
+
+    # **或者继续尝试 ass 滤镜，语法类似**
+    # filter_name = "ass"
+    # filter_options_ass = f"filename='{filter_srt_path_escaped}':force_style='{styles_escaped}'"
+    # vf_param_value = f"{filter_name}={filter_options_ass}"
 
 
     input_video_str = str(input_video.resolve())
     output_video_str = str(output_video.resolve())
 
     # --- 构建 FFmpeg 命令 ---
-    # -i 输入视频
-    # -vf 视频滤镜 (包括字幕)
-    # -c:v libx264 视频编码器
-    # -preset medium 平衡速度和质量
-    # -crf 22 质量因子 (更小=更高质量，文件更大)
-    # -c:a copy 直接复制音频流
-    # -y 覆盖输出
     cmd_list = [
         ffmpeg_path, "-y",
         "-i", input_video_str,
-        "-vf", filtergraph, # 使用构建好的 filtergraph
+        "-vf", vf_param_value, # <--- 使用构建好的滤镜参数字符串
         "-c:v", "libx264",
         "-preset", "medium",
         "-crf", "22",
         "-c:a", "copy",
-        output_video_str
+        str(output_video.resolve())
     ]
+
+
     try:
         logger.debug(f"  执行 FFmpeg 命令 (添加字幕): {shlex.join(cmd_list)}")
         result = subprocess.run(cmd_list, capture_output=True, text=True, check=False, encoding='utf-8', errors='ignore')
