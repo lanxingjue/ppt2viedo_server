@@ -1,0 +1,17 @@
+<!-- templates/404.html -->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>页面未找到 - 404</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>404 - 页面未找到</h1>
+        <p>抱歉，您请求的页面不存在。</p>
+        <p><a href="{{ url_for('index') }}" class="btn-back">返回首页</a></p>
+    </div>
+</body>
+</html>
