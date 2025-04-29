@@ -1,4 +1,5 @@
 # core_logic/video_synthesizer.py
+import configparser # <--- 确保这行在文件的最顶部
 import os
 import logging
 import time
