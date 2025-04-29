@@ -10,7 +10,7 @@ import shlex # 用于命令行参数引用
 import json # 用于解析 ffprobe 输出
 import platform # 判断操作系统
 import sys # 用于获取 frozen 状态和路径
-
+import uuid # 用于生成唯一文件名
 # 导入同级模块的工具函数
 from .utils import get_tool_path, get_audio_duration # 导入工具函数
 
