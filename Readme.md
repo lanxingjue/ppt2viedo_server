@@ -73,3 +73,8 @@ sudo apt install fonts-wqy-zenhei # 文泉驿正黑
 sudo apt install fonts-wqy-microhei # 文泉驿微米黑
 sudo apt install fonts-arphic-ukai # 文鼎PL楷体
 sudo apt install fonts-arphic-uming # 文鼎PL明体
+
+
+
+----
+Version:1.0
