@@ -14,7 +14,7 @@ import uuid # 用于生成唯一文件名
 
 # 导入同级模块的工具函数
 try:
-    from .utils import get_tool_path, get_audio_duration # 导入工具函数
+    from .utils import get_tool_path, get_audio_duration
 except ImportError as e:
     logging.error(f"FATAL ERROR: 无法导入 core_logic.utils 模块: {e}")
     raise ImportError(f"无法导入 core_logic.utils 模块: {e}") from e
@@ -45,6 +45,9 @@ except ImportError:
     logging.error("FATAL ERROR: 缺少 'Pillow' 库！请确保环境正确安装和打包包含！")
     PILLOW_AVAILABLE = False
 
+
+# --- 可选：在 worker 启动时执行一些初始化操作 ---
+from celery import signals  # Add this import at the top of the file
 
 # --- 定义任务阶段常量 (与 tasks.py 保持一致) ---
 STAGE_START = 'Initializing'
@@ -92,14 +95,13 @@ def generate_subtitles(
 
     if not valid_audio_files:
         logger.warning("没有有效的音频文件可用于生成字幕，跳过字幕生成。")
-        task_instance.update_state('PROCESSING', meta={'stage': STAGE_GENERATE_SUBTITLES, 'progress': 100, 'status': 'No valid audio for ASR'})
+        task_instance.update_state('PROCESSING', meta={'stage': STAGE_GENERATE_SUBTITLES, 'progress': 100, 'status': 'No valid audio'})
         return False
 
     # --- 使用 FFmpeg 合并音频 ---
     task_instance.update_state('PROCESSING', meta={'stage': STAGE_GENERATE_SUBTITLES, 'progress': 5, 'status': 'Concatenating audio for ASR'})
-    # 使用唯一文件名避免冲突
     concat_list_path = temp_dir / f"audio_concat_list_{uuid.uuid4().hex[:4]}.txt"
-    combined_audio_path = temp_dir / f"combined_audio_for_asr_{uuid.uuid4().hex[:4]}.wav" # 合并后的音频文件
+    combined_audio_path = temp_dir / f"combined_audio_for_asr_{uuid.uuid4().hex[:4]}.wav"
 
     ffmpeg_path = get_tool_path("ffmpeg", logger, config)
     if ffmpeg_path is None:
@@ -173,7 +175,6 @@ def generate_subtitles(
         task_instance.update_state('PROCESSING', meta={'stage': STAGE_GENERATE_SUBTITLES, 'progress': 15, 'status': 'Loading ASR model'})
         asr_start_time = time.time()
         # 强制 CPU 加载和推理
-        # whisper 库自身的进度条可能会显示在 Worker 日志中 (取决于 verbose 和 TQDM_DISABLE)
         model = stable_whisper.load_model(whisper_model_name, device="cpu")
         logger.info(f"已加载 Whisper 模型 '{whisper_model_name}'，实际使用设备: {model.device}")
 
@@ -182,7 +183,7 @@ def generate_subtitles(
         # transcribe 函数本身是同步的，运行在 worker 进程中
         result = model.transcribe(
             str(combined_audio_path),
-            fp16=False, # 对于 CPU 通常设为 False
+            fp16=False,
             verbose=True, # 设置 verbose=True，让 whisper 库自己的进度条显示
             # device="cpu", # 确保这里不意外使用 GPU
             # task=self # stable-whisper 或 whisper 库没有直接支持接收 Celery 任务实例进行进度更新
@@ -199,13 +200,11 @@ def generate_subtitles(
         enable_opencc = config.getboolean('General', 'enable_opencc', fallback=False)
         if enable_opencc and OPENCC_AVAILABLE:
             try:
-                # OpenCC 配置文件名应只有 t2s.json
                 cc = opencc.OpenCC('t2s.json') # Config file name only
                 srt_content = cc.convert(srt_content)
                 logger.info("成功使用 OpenCC 将字幕内容转换为简体。")
                 task_instance.update_state('PROCESSING', meta={'stage': STAGE_GENERATE_SUBTITLES, 'progress': 92, 'status': 'OpenCC conversion complete'})
             except Exception as e:
-                # 记录错误，但不阻止保存原始 SRT
                 logger.error(f"OpenCC 转换 SRT 内容时出错: {e}。将保存原始 SRT。", exc_info=True)
                 task_instance.update_state('PROCESSING', meta={'stage': STAGE_GENERATE_SUBTITLES, 'status': f'Warning: OpenCC failed ({type(e).__name__})'})
         elif enable_opencc and not OPENCC_AVAILABLE:
@@ -213,9 +212,9 @@ def generate_subtitles(
              task_instance.update_state('PROCESSING', meta={'stage': STAGE_GENERATE_SUBTITLES, 'status': 'Skipping OpenCC (not available)'})
         else:
              logger.debug("配置禁用了 OpenCC 或库不可用，跳过繁简转换。")
-             # task_instance.update_state('PROCESSING', meta={'stage': STAGE_GENERATE_SUBTITLES, 'status': 'OpenCC disabled'}) # 不发送状态太频繁
+             # task_instance.update_state('PROCESSING', meta={'stage': STAGE_GENERATE_SUBTITLES, 'status': 'OpenCC disabled'})
 
-        # 保存 SRT 内容
+
         with open(output_srt_path, "w", encoding="utf-8") as f:
             f.write(srt_content)
 
@@ -234,20 +233,20 @@ def generate_subtitles(
                       task_instance.update_state('PROCESSING', meta={'stage': STAGE_GENERATE_SUBTITLES, 'progress': 95, 'status': 'SRT file generated'})
                  else:
                       logger.warning("生成的 SRT 文件为空或不包含有效文本内容。")
-                      output_srt_path.unlink(missing_ok=True) # 删除无效文件
+                      output_srt_path.unlink(missing_ok=True)
                       task_instance.update_state('PROCESSING', meta={'stage': STAGE_GENERATE_SUBTITLES, 'status': 'Error: SRT file invalid or empty'})
-                      return False # 视为失败
             else:
                  logger.warning("生成的 SRT 文件过小或为空。")
                  if output_srt_path.exists(): output_srt_path.unlink(missing_ok=True)
                  task_instance.update_state('PROCESSING', meta={'stage': STAGE_GENERATE_SUBTITLES, 'status': 'Error: SRT file too small or empty'})
-                 return False # 视为失败
         except Exception as e:
              logger.error(f"检查生成的 SRT 文件有效性时出错: {e}", exc_info=True)
              if output_srt_path.exists(): output_srt_path.unlink(missing_ok=True)
              task_instance.update_state('PROCESSING', meta={'stage': STAGE_GENERATE_SUBTITLES, 'status': f'Error: SRT validation failed ({type(e).__name__})'})
-             return False # 视为失败
 
+
+        if not srt_is_valid:
+             return False # 字幕生成失败
 
         task_instance.update_state('PROCESSING', meta={'stage': STAGE_GENERATE_SUBTITLES, 'progress': 100, 'status': 'Subtitles generated successfully'})
         return True # 字幕生成成功
@@ -283,6 +282,8 @@ def create_video_segment(
     使用 FFmpeg 将单张图片转换为指定时长的视频片段，并附加音频。失败时返回 False。
     """
     logger.debug(f"  使用 FFmpeg 创建视频片段: {output_path.name} (目标时长: {duration:.3f}s)")
+    # task_instance.update_state('PROCESSING', meta={'stage': STAGE_VIDEO_SEGMENTS, 'status': f'Creating segment for {output_path.name}'})
+
 
     ffmpeg_path = get_tool_path("ffmpeg", logger, config)
     if ffmpeg_path is None:
@@ -299,7 +300,6 @@ def create_video_segment(
     target_width = config.getint('Video', 'target_width', fallback=1280)
     target_fps = config.getint('Video', 'target_fps', fallback=24)
 
-    # 使用唯一文件名避免冲突
     temp_video_path = output_path.with_suffix(".temp_video_" + uuid.uuid4().hex[:4] + ".mp4")
     step1_success = False
 
@@ -441,11 +441,12 @@ def concatenate_videos(video_file_paths: list[Path], output_path: Path, logger: 
             return False
 
         logger.debug(f"视频拼接成功: {output_path.name}")
-        task_instance.update_state('PROCESSING', meta={'stage': STAGE_VIDEO_CONCAT, 'progress': 100, 'status': 'Concatenation complete'})
+        task_instance.update_state('PROCESSING', meta={'stage': STAGE_VIDEO_CONCAT, 'progress': 70, 'status': 'Concatenation complete'})
         return True
 
     except FileNotFoundError:
          logger.error(f"错误：找不到 FFmpeg 命令 '{ffmpeg_path}'。")
+         task_instance.update_state('PROCESSING', meta={'stage': STAGE_VIDEO_CONCAT, 'status': 'Error: ffmpeg not found'})
          return False
     except Exception as e:
          logger.error(f"创建拼接列表或执行拼接时发生错误: {e}", exc_info=True)
@@ -462,7 +463,7 @@ def add_subtitles(input_video: Path, srt_file: Path, output_video: Path, logger:
     使用 FFmpeg 将 SRT 字幕硬编码到视频中。失败时返回 False。
     """
     logger.debug(f"使用 FFmpeg 添加字幕到视频 '{input_video.name}'...")
-    task_instance.update_state('PROCESSING', meta={'stage': STAGE_ADD_SUBTITLES, 'progress': 0, 'status': 'Starting subtitle embedding'})
+    task_instance.update_state('PROCESSING', meta={'stage': STAGE_ADD_SUBTITLES, 'progress': 90, 'status': 'Starting subtitle embedding'})
 
 
     ffmpeg_path = get_tool_path("ffmpeg", logger, config)
@@ -500,26 +501,24 @@ def add_subtitles(input_video: Path, srt_file: Path, output_video: Path, logger:
     # 将样式字符串内部的单引号也转义
     styles_escaped = ffmpeg_style_str.replace("'", r"\'")
 
+    # --- 构建正确的 filtergraph 字符串 ---
     # 使用 subtitles 滤镜，filename 选项和 force_style 选项
     # 格式: subtitles=filename='...',force_style='...'
-    # 选项之间用逗号 , 分隔
+    # **选项之间用冒号 : 分隔**
     # 每个选项的值用单引号包裹，内部单引号用 \' 转义
 
-    # **根据日志 Error "No such filter: 'force_style'", 最可能的原因是冒号用错了，应该是逗号**
-    # **再次修正：filename 和 force_style 都是 subtitles 滤镜的 option，它们之间用逗号!**
-    # **格式: subtitles=option1=value1,option2=value2,...**
-
     # 构造滤镜选项字符串
-    filter_options = f"filename='{filter_srt_path_escaped}',force_style='{styles_escaped}'" # <--- 确认语法：选项之间用逗号
+    # 核心： filename='...',force_style='...'
+    filter_options = f"filename='{filter_srt_path_escaped}':force_style='{styles_escaped}'" # <--- 关键：选项之间用冒号 :
 
-    # 完整的 -vf 参数值就是 "subtitles=filename='...',force_style='...'"
+    # 完整的 -vf 参数值就是 "subtitles=filename='...':force_style='...'"
     # 将滤镜名称和参数用等号连接
     vf_param_value = f"subtitles={filter_options}"
 
 
-    # **或者使用 ass 滤镜，语法类似，有时更稳定**
+    # **或者尝试 ass 滤镜，语法类似，有时更稳定**
     # filter_name_ass = "ass"
-    # filter_options_ass = f"filename='{filter_srt_path_escaped}',force_style='{styles_escaped}'"
+    # filter_options_ass = f"filename='{filter_srt_path_escaped}':force_style='{styles_escaped}'"
     # vf_param_value = f"{filter_name_ass}={filter_options_ass}"
 
 
@@ -534,14 +533,13 @@ def add_subtitles(input_video: Path, srt_file: Path, output_video: Path, logger:
         "-c:v", "libx264", # 视频编码器
         "-preset", "medium", # 编码速度
         "-crf", "22", # 质量因子
-        "-c:a", "copy", # 直接复制音频流 (如果需要转码音频，这里需要改)
+        "-c:a", "copy", # 直接复制音频流
         str(output_video.resolve()) # 输出文件
     ]
     try:
         logger.debug(f"  执行 FFmpeg 命令 (添加字幕): {shlex.join(cmd_list)}")
         task_instance.update_state('PROCESSING', meta={'stage': STAGE_ADD_SUBTITLES, 'progress': 92, 'status': 'Running FFmpeg subtitles'})
 
-        # 使用 subprocess.run 并捕获输出和错误
         result = subprocess.run(cmd_list, capture_output=True, text=True, check=False, encoding='utf-8', errors='ignore')
 
         if result.returncode != 0:
@@ -646,12 +644,11 @@ def synthesize_video_for_task(
         )
         if success:
             segment_files.append(segment_output_path)
-            # 更新进度 (估算)
             progress = 52 + int((i + 1) / num_slides_to_process * 15) # 52% 到 67% 用于片段生成
             task_instance.update_state('PROCESSING', meta={'stage': STAGE_VIDEO_SEGMENTS, 'progress': progress, 'current_slide': slide_num})
         else:
             logger.error(f"未能创建幻灯片 {slide_num} 的视频片段。合成中止。")
-            # create_video_segment 内部已记录错误和更新状态
+            task_instance.update_state('PROCESSING', meta={'stage': STAGE_VIDEO_SEGMENTS, 'status': f'Error creating segment for slide {slide_num}'})
             return False # 任一片段失败，整个合成失败
 
 
@@ -670,7 +667,7 @@ def synthesize_video_for_task(
     success_concat = concatenate_videos(segment_files, base_video_path, logger, config, task_instance)
     if not success_concat:
         logger.error("拼接视频片段失败。")
-        # concatenate_videos 内部已记录错误和更新状态
+        task_instance.update_state('PROCESSING', meta={'stage': STAGE_VIDEO_CONCAT, 'status': 'Error: FFmpeg concat failed'})
         return False
 
     task_instance.update_state('PROCESSING', meta={'stage': STAGE_VIDEO_CONCAT, 'progress': 70, 'status': 'Concatenation complete'})
@@ -680,7 +677,6 @@ def synthesize_video_for_task(
     task_instance.update_state('PROCESSING', meta={'stage': STAGE_GENERATE_SUBTITLES, 'progress': 72, 'status': 'Generating subtitles (ASR)'})
     logger.info("步骤 3/3: 生成字幕文件 (ASR) 并添加到视频")
     audio_paths_for_asr = [d.get('audio_path') for d in processed_data if d.get('audio_path') and d.get('audio_duration', 0) > 0.01]
-    # subtitle_file_path = temp_run_dir / f"subtitles_{uuid.uuid4().hex[:4]}.srt" # <-- 已在 ppt_processor 中修正，不需要这里的 UUID
     subtitle_file_path = temp_run_dir / "subtitles.srt" # <--- 使用固定文件名
     subtitles_generated = False
     asr_errors_occurred = False
@@ -688,7 +684,6 @@ def synthesize_video_for_task(
     if audio_paths_for_asr:
         logger.info(f"发现 {len(audio_paths_for_asr)} 个有效音频片段用于 ASR。")
         try:
-             # generate_subtitles 内部会处理 ASR 和 OpenCC
              subtitles_generated = generate_subtitles(
                 audio_paths_for_asr,
                 subtitle_file_path,
@@ -704,16 +699,16 @@ def synthesize_video_for_task(
 
     else:
         logger.info("没有有效时长的音频文件，跳过字幕生成。")
-        task_instance.update_state('PROCESSING', meta={'stage': STAGE_GENERATE_SUBTITLES, 'progress': 100, 'status': 'Skipping ASR (no audio)'}) # 无音频时进度直接 100%
+        task_instance.update_state('PROCESSING', meta={'stage': STAGE_GENERATE_SUBTITLES, 'progress': 100, 'status': 'Skipping ASR (no audio)'})
 
-    # 检查 SRT 文件有效性 (generate_subtitles 内部已做)
+
+    # 检查 SRT 文件有效性
     srt_is_valid = subtitles_generated and subtitle_file_path.exists() and subtitle_file_path.stat().st_size > 5
 
     # --- 添加字幕 (如果成功生成) ---
     if srt_is_valid:
         task_instance.update_state('PROCESSING', meta={'stage': STAGE_ADD_SUBTITLES, 'progress': 90, 'status': 'Adding subtitles'})
         logger.info("字幕文件有效，尝试添加字幕到视频。")
-        # 最终视频文件路径已经在任务开始时确定并传入了 (output_video_path_base)
         final_video_with_subs_path = final_video_path # 最终输出路径
 
         success_sub = add_subtitles(base_video_path, subtitle_file_path, final_video_with_subs_path, logger, config, task_instance) # <--- 传递任务实例
@@ -722,19 +717,17 @@ def synthesize_video_for_task(
             logger.debug(f"字幕添加成功。最终视频已保存到: {final_video_with_subs_path.resolve()}")
             if base_video_path.exists(): base_video_path.unlink(missing_ok=True)
             if subtitle_file_path.exists(): subtitle_file_path.unlink(missing_ok=True)
-            # 最终输出文件已经是 output_video_path，不需要移动
-            # task_instance.update_state 会在主任务的 finally 块中处理
+            task_instance.update_state('PROCESSING', meta={'stage': STAGE_ADD_SUBTITLES, 'progress': 100, 'status': 'Subtitles added successfully'})
             return True # 整个合成流程成功
 
         else:
             logger.error("添加字幕失败。将输出不带字幕的视频。")
+            task_instance.update_state('PROCESSING', meta={'stage': STAGE_ADD_SUBTITLES, 'status': 'Error: FFmpeg subtitles failed', 'ffmpeg_stderr': 'Check logs for details'}) # 更新状态
             # 添加字幕失败，将基础无字幕视频移动到最终输出位置
-            # task_instance 已在 add_subtitles 内部更新状态
             try:
                  shutil.move(str(base_video_path.resolve()), str(final_video_path.resolve()))
                  logger.warning(f"最终视频 (无字幕 - 因添加失败) 已保存到: {final_video_path.resolve()}")
                  if subtitle_file_path.exists(): subtitle_file_path.unlink(missing_ok=True)
-                 # 虽然没有字幕，但视频生成了，视为任务成功（取决于需求）
                  task_instance.update_state('PROCESSING', meta={'stage': STAGE_ADD_SUBTITLES, 'progress': 100, 'status': 'Warning: Subtitles failed, saved video without subtitles'})
                  return True # 视为成功 (有视频输出)
             except Exception as e:
@@ -764,7 +757,7 @@ def synthesize_video_for_task(
             except Exception as e:
                  logger.error(f"移动最终无字幕视频时出错: {e}", exc_info=True)
                  task_instance.update_state('PROCESSING', meta={'stage': STAGE_ADD_SUBTITLES, 'status': f'Error: Failed to move base video ({type(e).__name__})'})
-                 return False # 移动失败，任务失败
+                 return False
         else:
             logger.error("基础视频文件不存在，无法保存无字幕视频。")
             task_instance.update_state('PROCESSING', meta={'stage': STAGE_ADD_SUBTITLES, 'status': 'Fatal Error: Base video not found'})
@@ -777,8 +770,6 @@ def synthesize_video_for_task(
     return False
 
 
-# --- 可选：在 worker 启动时执行一些初始化操作 ---
-from celery import signals  # Add this import at the top of the file
 
 # ... (worker_init 函数保持不变) ...
 @signals.worker_init.connect
