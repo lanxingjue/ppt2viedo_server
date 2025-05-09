@@ -10,6 +10,16 @@
     <div class="status-box">
         <p>当前状态: <span id="task-status" class="status-text">{{ initial_status }}</span></p>
         <p id="status-stage">阶段: {% if initial_meta.stage %}{{ initial_meta.stage }}{% else %}初始化中...{% endif %}</p>
+        
+        {# 显示原始PPT文件名和下载链接 #}
+        {% if task_record and task_record.original_ppt_filename %}
+        <p>原始文件: {{ task_record.original_ppt_filename }}
+            {% if task_record.original_ppt_path %}
+                (<a href="{{ url_for('download_ppt', task_record_id=task_record.id) }}" class="action-link download-link-inline">下载原始PPT</a>)
+            {% endif %}
+        </p>
+        {% endif %}
+
 
         <div class="progress-container" id="progress-container" style="display: {% if initial_status in ['STARTED', 'PROCESSING'] %}flex{% else %}none{% endif %};">
             <div class="progress-bar">

@@ -1,85 +1,113 @@
 # models.py
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
-from flask_login import UserMixin # UserMixin 提供了 Flask-Login 需要的默认实现
-from app import db, login_manager # 从 app.py 导入 db 和 login_manager 实例
+from flask_login import UserMixin
+# 从 app.py 导入 db 和 login_manager 实例
+# 这要求 app.py 中已经创建了这些实例，并且 celery_utils.py 能正确导入 app
+# 为了避免直接的循环依赖，通常 login_manager.user_loader 会在 app.py 中定义
+# 这里我们假设 login_manager 实例在 app.py 中定义并传递给 UserMixin
 
-# Flask-Login 需要一个 user_loader 函数来从会话中加载用户
-@login_manager.user_loader
-def load_user(user_id):
-    return User.query.get(int(user_id))
+# 尝试从 app 模块导入 db 和 login_manager
+# 这将在 app.py 完成其基本初始化后进行
+_db_for_model = None
+_login_manager_for_model = None
 
-class User(db.Model, UserMixin):
+def init_models_dependencies(db_instance, login_manager_instance):
+    """在 app.py 中调用以传递 db 和 login_manager 实例"""
+    global _db_for_model, _login_manager_for_model
+    _db_for_model = db_instance
+    _login_manager_for_model = login_manager_instance
+
+    # Flask-Login 需要一个 user_loader 函数来从会话中加载用户
+    @_login_manager_for_model.user_loader
+    def load_user(user_id):
+        # 确保 User 类已定义
+        return User.query.get(int(user_id))
+
+
+class User(UserMixin): # UserMixin 提供了 Flask-Login 需要的默认实现
     """用户模型"""
-    __tablename__ = 'user' # 定义表名
+    # __tablename__ = 'user' # SQLAlchemy 会自动从小写类名推断
 
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
-    email = db.Column(db.String(120), unique=True, nullable=False)
-    password_hash = db.Column(db.String(256), nullable=False) # 增加密码哈希长度
-    role = db.Column(db.String(20), nullable=False, default='free')  # e.g., 'free', 'vip'
-    
-    # 从 config.ini 读取默认限制，或在此处硬编码
-    # 这里我们先用硬编码的思路，后续可以改为从配置读取
-    video_creation_limit = db.Column(db.Integer, nullable=False, default=1) # 免费用户默认1次
-    videos_created_count = db.Column(db.Integer, nullable=False, default=0)
-    
-    registered_on = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    last_login = db.Column(db.DateTime, nullable=True) # 上次登录时间
+    # 确保在类定义时 _db_for_model 已经被 init_models_dependencies 设置
+    # 或者，更常见的做法是在 app.py 中定义模型，并从那里导入
+    # 这里我们假设 _db_for_model 会在 User 类被 SQLAlchemy 使用前被设置
+    if _db_for_model:
+        id = _db_for_model.Column(_db_for_model.Integer, primary_key=True)
+        username = _db_for_model.Column(_db_for_model.String(80), unique=True, nullable=False)
+        email = _db_for_model.Column(_db_for_model.String(120), unique=True, nullable=False)
+        password_hash = _db_for_model.Column(_db_for_model.String(256), nullable=False)
+        role = _db_for_model.Column(_db_for_model.String(20), nullable=False, default='free')
+        video_creation_limit = _db_for_model.Column(_db_for_model.Integer, nullable=False, default=1)
+        videos_created_count = _db_for_model.Column(_db_for_model.Integer, nullable=False, default=0)
+        registered_on = _db_for_model.Column(_db_for_model.DateTime, nullable=False, default=datetime.utcnow)
+        last_login = _db_for_model.Column(_db_for_model.DateTime, nullable=True)
+        tasks = _db_for_model.relationship('TaskRecord', backref='author', lazy=True, cascade="all, delete-orphan")
+    else:
+        # 如果 _db_for_model 未设置，这会导致错误，但这是为了让代码能被解析
+        # 实际使用时，init_models_dependencies 必须先被调用
+        pass
 
-    # 定义与 TaskRecord 的一对多关系
-    # backref='author' 允许我们通过 TaskRecord.author 访问关联的 User 对象
-    # lazy=True 表示 SQLAlchemy 将在需要时才从数据库加载相关对象
-    tasks = db.relationship('TaskRecord', backref='author', lazy=True, cascade="all, delete-orphan")
 
     def __repr__(self):
         return f'<User {self.username} ({self.email}) - Role: {self.role}>'
 
+    # UserMixin 提供了 get_id() 方法，所以不需要显式定义
+    # def get_id(self):
+    # return str(self.id)
+
     def set_password(self, password):
-        """设置密码，存储哈希值"""
         self.password_hash = generate_password_hash(password)
 
     def check_password(self, password):
-        """检查密码是否匹配"""
         return check_password_hash(self.password_hash, password)
 
-    def can_create_video(self, config): # 传入配置对象
-        """检查用户是否还有创建视频的额度"""
+    def can_create_video(self, app_config): # app_config 是 configparser 对象
         if self.role == 'vip':
-            # VIP 用户可以从配置中读取限制，或默认为无限
-            limit = config.getint('UserRoles', 'vip_video_limit', fallback=-1)
+            limit = app_config.getint('UserRoles', 'vip_video_limit', fallback=-1)
             return limit == -1 or self.videos_created_count < limit
-        else: # 免费用户
-            limit = config.getint('UserRoles', 'free_video_limit', fallback=1)
+        else:
+            limit = app_config.getint('UserRoles', 'free_video_limit', fallback=1)
             return self.videos_created_count < limit
             
     def increment_video_count(self):
-        """增加用户已创建视频计数"""
-        if self.videos_created_count is None: # 处理可能的 None 值
+        if self.videos_created_count is None:
             self.videos_created_count = 0
         self.videos_created_count += 1
 
 
-class TaskRecord(db.Model):
+class TaskRecord:
     """任务记录模型"""
-    __tablename__ = 'task_record' # 定义表名
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False) # 外键关联到 User 表的 id 字段
-    celery_task_id = db.Column(db.String(120), unique=True, nullable=False, index=True) # Celery 任务 ID
-    
-    original_ppt_filename = db.Column(db.String(255), nullable=True)
-    output_video_filename = db.Column(db.String(255), nullable=True) # 生成的视频文件名 (不含路径)
-    # output_video_relative_path = db.Column(db.String(512), nullable=True) # 相对路径，方便前端构造下载链接
-
-    status = db.Column(db.String(50), nullable=False, default='PENDING') # 任务状态
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    completed_at = db.Column(db.DateTime, nullable=True)
-    error_message = db.Column(db.Text, nullable=True) # 存储错误信息
-    
-    # 注意：与 User 模型的反向关系 'author' 是通过 User.tasks 定义的
-    # user = db.relationship('User', backref=db.backref('task_records', lazy=True)) # 另一种定义关系的方式
+    # __tablename__ = 'task_record'
+    if _db_for_model:
+        id = _db_for_model.Column(_db_for_model.Integer, primary_key=True)
+        user_id = _db_for_model.Column(_db_for_model.Integer, _db_for_model.ForeignKey('user.id'), nullable=False)
+        celery_task_id = _db_for_model.Column(_db_for_model.String(120), unique=True, nullable=False, index=True)
+        original_ppt_filename = _db_for_model.Column(_db_for_model.String(255), nullable=True)
+        original_ppt_path = _db_for_model.Column(_db_for_model.String(512), nullable=True) # 新增：存储原始PPT的相对路径
+        output_video_filename = _db_for_model.Column(_db_for_model.String(255), nullable=True)
+        status = _db_for_model.Column(_db_for_model.String(50), nullable=False, default='PENDING')
+        created_at = _db_for_model.Column(_db_for_model.DateTime, nullable=False, default=datetime.utcnow)
+        completed_at = _db_for_model.Column(_db_for_model.DateTime, nullable=True)
+        error_message = _db_for_model.Column(_db_for_model.Text, nullable=True)
+    else:
+        pass
 
     def __repr__(self):
         return f'<TaskRecord {self.id} (CeleryID: {self.celery_task_id}) - User: {self.user_id} - Status: {self.status}>'
+
+# --- 在 app.py 中，你需要这样做 ---
+# from flask import Flask
+# from flask_sqlalchemy import SQLAlchemy
+# from flask_login import LoginManager
+# app = Flask(__name__)
+# # ... 配置 app ...
+# db = SQLAlchemy(app)
+# login_manager = LoginManager(app)
+#
+# from models import init_models_dependencies, User, TaskRecord
+# init_models_dependencies(db, login_manager) # 传递实例
+#
+# # 然后 User 和 TaskRecord 类就可以正确地使用 db.Column 等
+# # 并且 load_user 装饰器也能正确工作
 

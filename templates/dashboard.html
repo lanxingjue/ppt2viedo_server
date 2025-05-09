@@ -12,7 +12,11 @@
             {% for task_item in tasks %}
             <div class="task-item {% if task_item.status == 'SUCCESS' or task_item.status == 'COMPLETE' %}task-success{% elif task_item.status == 'FAILURE' %}task-failure{% else %}task-processing{% endif %}">
                 <div class="task-info">
-                    <p><strong>原始PPT:</strong> {{ task_item.original_ppt_filename or 'N/A' }}</p>
+                    <p><strong>原始PPT:</strong> {{ task_item.original_ppt_filename or 'N/A' }}
+                        {% if task_item.original_ppt_path %}
+                            (<a href="{{ url_for('download_ppt', task_record_id=task_item.id) }}" class="action-link download-link-inline">下载PPT</a>)
+                        {% endif %}
+                    </p>
                     <p><strong>创建时间:</strong> {{ task_item.created_at.strftime('%Y-%m-%d %H:%M:%S') if task_item.created_at else 'N/A' }} UTC</p>
                     <p><strong>状态:</strong> <span class="status-text-{{ task_item.status | lower }}">{{ task_item.status }}</span></p>
                     {% if task_item.status == 'SUCCESS' or task_item.status == 'COMPLETE' %}
@@ -23,15 +27,20 @@
                             <p class="warning-text">视频文件信息丢失。</p>
                         {% endif %}
                     {% elif task_item.status == 'FAILURE' %}
-                        <p class="error-text"><strong>错误:</strong> {{ task_item.error_message or '未知错误，请查看任务详情。' }}</p>
+                        <p class="error-text" title="{{ task_item.error_message | striptags | truncate(300, True) if task_item.error_message else '' }}">
+                            <strong>错误:</strong> {{ (task_item.error_message.split('\n')[0] | truncate(100, True)) if task_item.error_message else '未知错误，请查看任务详情。' }}
+                        </p>
                     {% endif %}
                 </div>
                 <div class="task-actions">
                     <a href="{{ url_for('task_status', task_id=task_item.celery_task_id) }}" class="btn-action btn-view-status">查看状态</a>
                     {% if task_item.status == 'SUCCESS' or task_item.status == 'COMPLETE' and task_item.output_video_filename %}
-                        {# 构造下载链接，确保 filename 是安全的 #}
                         <a href="{{ url_for('download_file', filename=task_item.output_video_filename, task_record_id=task_item.id) }}" class="btn-action btn-download-task">下载视频</a>
                     {% endif %}
+                    {# 删除按钮表单 #}
+                    <form action="{{ url_for('delete_task', task_record_id=task_item.id) }}" method="POST" style="display: inline;" onsubmit="return confirm('您确定要删除这个任务及其相关文件吗？此操作无法撤销。');">
+                        <button type="submit" class="btn-action btn-delete-task">删除任务</button>
+                    </form>
                 </div>
             </div>
             {% endfor %}
