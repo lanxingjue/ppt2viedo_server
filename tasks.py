@@ -1,329 +1,250 @@
 # tasks.py
 import os
 import logging
-from celery import Celery
-from celery import signals
-from celery.utils.log import get_task_logger # 获取任务专属日志记录器
+from celery import Celery, signals
+from celery.utils.log import get_task_logger
 from pathlib import Path
 import configparser
 import shutil
 import time
 import sys
-import traceback # 用于获取堆栈跟踪
+import traceback
+from datetime import datetime
 
-# --- 从 celery_app.py 文件导入 Celery 应用实例 (绝对导入) ---
-# 假定 celery_app.py 文件在项目根目录
+# --- Celery 应用实例 ---
+# celery_app 实例应该由 celery_app.py 提供并在这里导入
+# 或者，如果 tasks.py 是 Celery 的 include 目标，Celery 会处理任务注册
+# 我们假设 celery_app.py 中定义的 celery_app 是可用于注册任务的
 try:
-    from celery_app import celery_app
+    from celery_app import celery_app # 从 celery_app.py 导入 Celery 实例
+except ImportError:
+    # 如果直接运行 tasks.py 或在测试环境中，celery_app 可能未定义
+    # 创建一个临时的，主要为了代码能解析，实际 worker 启动时会用 celery_app.py 中的
+    logging.warning("无法从 celery_app 导入 celery_app 实例，将使用临时实例。这在 worker 运行时应能正常工作。")
+    celery_app = Celery('ppt2video_tasks_fallback_in_tasks')
+
+
+# --- Flask App 和 DB 导入 ---
+# 这些导入现在应该可以工作了，因为 celery_app.py 修改了 sys.path
+# 这些变量将在任务执行时，在 app_context 内被使用
+flask_app_instance = None
+db_instance = None
+User_model = None
+TaskRecord_model = None
+app_config_instance = None # 用于存储解析的 configparser 对象
+
+try:
+    from app import app as flask_app_imported, db as db_imported # 从 app.py 导入
+    from models import User as User_imported, TaskRecord as TaskRecord_imported # 从 models.py 导入
+    
+    flask_app_instance = flask_app_imported
+    db_instance = db_imported
+    User_model = User_imported
+    TaskRecord_model = TaskRecord_imported
+    app_config_instance = flask_app_instance.config.get('APP_CONFIG') # 获取存储在 Flask app 配置中的 configparser 对象
+    
+    if app_config_instance is None:
+        logging.error("CRITICAL: ConfigParser 对象未在 Flask app.config['APP_CONFIG'] 中找到！Celery 任务可能无法正确获取配置。")
+        # 可以尝试在任务内部重新加载 config.ini 作为备用方案，但这不理想
+
+    FLASK_CONTEXT_AVAILABLE = True
+    logging.info("tasks.py: Flask app, db, models, 和 app_config 成功导入/设置。")
+
 except ImportError as e:
-    # 如果导入失败，记录并抛出异常，让 Celery 报告加载错误
-    logging.error(f"FATAL ERROR: 无法导入 celery_app 模块: {e}")
-    raise ImportError(f"无法导入 celery_app 模块: {e}") from e
+    logging.error(f"CRITICAL: tasks.py 无法导入 Flask app, db, models, 或 app_config: {e}. 依赖数据库的任务将失败。", exc_info=True)
+    FLASK_CONTEXT_AVAILABLE = False
+except AttributeError as e_attr: # 例如，如果 app.config['APP_CONFIG'] 不存在
+    logging.error(f"CRITICAL: tasks.py 初始化时 AttributeError (可能是 APP_CONFIG 未设置): {e_attr}. 依赖配置的任务将失败。", exc_info=True)
+    FLASK_CONTEXT_AVAILABLE = False
 
 
-# --- 导入核心处理逻辑函数 (绝对导入) ---
-# 假定 core_logic 目录在项目根目录
+# --- 核心逻辑导入 ---
 try:
     from core_logic.ppt_processor import process_presentation_for_task
     from core_logic.video_synthesizer import synthesize_video_for_task
-    from core_logic.tts_manager_edge import get_available_voices as get_available_tts_voices_core # 导入并重命名
-    from core_logic.utils import get_tool_path, get_poppler_path, get_audio_duration # 导入 utils
+    from core_logic.tts_manager_edge import get_available_voices as get_available_tts_voices_core
+    # from core_logic.utils import get_tool_path, get_poppler_path, get_audio_duration # 这些通常在 core_logic 内部调用
 except ImportError as e:
-    # 如果核心逻辑模块导入失败，整个 worker 将无法启动或任务会失败
-    logging.error(f"FATAL ERROR: 无法导入核心逻辑模块或其依赖: {e}")
-    raise ImportError(f"无法导入核心逻辑模块或其依赖: {e}") from e
+    logging.error(f"FATAL ERROR: 无法导入核心逻辑模块: {e}", exc_info=True)
+    # 这会阻止任务的正确执行
 
-# --- 获取任务专属日志记录器 ---
 task_logger = get_task_logger(__name__)
 
-
-# --- 定义任务阶段常量 (用于状态更新) ---
-# 这些常量在 core_logic/*.py 中也定义，确保一致
+# --- 任务阶段常量 ---
 STAGE_START = 'Initializing'
 STAGE_PPT_PROCESSING = 'Processing Presentation'
-STAGE_PPT_IMAGES = 'Exporting Slides'
-STAGE_EXTRACT_NOTES = 'Extracting Notes'
-STAGE_GENERATE_AUDIO = 'Generating Audio'
 STAGE_VIDEO_SYNTHESIS = 'Synthesizing Video'
-STAGE_VIDEO_SEGMENTS = 'Creating Video Segments'
-STAGE_VIDEO_CONCAT = 'Concatenating Video'
-STAGE_GENERATE_SUBTITLES = 'Generating Subtitles (ASR)'
-STAGE_ADD_SUBTITLES = 'Adding Subtitles'
 STAGE_CLEANUP = 'Cleaning Up'
 STAGE_COMPLETE = 'Complete'
+STAGE_DB_UPDATE = 'Updating Database'
 
 
-# --- 定义 Celery 任务 ---
-@celery_app.task(bind=True, name='ppt_to_video.convert_task')
-def convert_ppt_to_video_task(self, pptx_filepath_str: str, output_dir_str: str, voice_id: str):
-    """
-    后台 Celery 任务：执行 PPT 到视频的转换。
-    增加状态更新和错误信息处理。
-    """
-    task_id = self.request.id
-    # 在任务开始时立即更新状态
-    self.update_state(state='STARTED', meta={'stage': STAGE_START, 'progress': 0})
-    logger = task_logger
-
-    logger.info(f"任务 {task_id} 开始处理: {pptx_filepath_str}")
+@celery_app.task(bind=True, name='ppt_to_video.convert_task', acks_late=True, reject_on_worker_lost=True,
+                  time_limit=3600, soft_time_limit=3500) # 增加超时限制 (1小时硬限制, 略短的软限制)
+def convert_ppt_to_video_task(self, pptx_filepath_str: str, output_dir_str: str, voice_id: str, 
+                              task_record_id: int, user_id: int):
+    task_celery_id = self.request.id
+    logger = task_logger # 使用 Celery 的 task_logger
+    logger.info(f"Celery 任务 {task_celery_id} (DB Record ID: {task_record_id}) 开始，用户: {user_id}, 文件: {Path(pptx_filepath_str).name}")
     start_time = time.time()
-    temp_run_dir = None # 初始化临时任务目录变量
+    temp_run_dir = None
+    final_video_relative_path = None
 
-    try:
-        # --- 1. 准备工作和环境 ---
-        self.update_state(state='PROCESSING', meta={'stage': STAGE_START, 'progress': 5})
-        # 获取配置和日志记录器
-        config = configparser.ConfigParser()
-        config_path = Path(__file__).parent.parent / 'config.ini'
-        if config_path.exists():
-            try:
-                config.read(config_path, encoding='utf-8')
-            except Exception as e:
-                error_msg = f"任务 {task_id} 加载配置 {config_path} 失败: {e}"
-                logger.error(error_msg, exc_info=True)
-                # 任务内部的配置加载失败是严重错误，直接标记失败
-                self.update_state(state='FAILURE', meta={'error': error_msg, 'exc_type': type(e).__name__, 'traceback': traceback.format_exc(), 'stage': STAGE_START})
-                raise RuntimeError(error_msg) from e
+    if not FLASK_CONTEXT_AVAILABLE or not flask_app_instance or not db_instance or not User_model or not TaskRecord_model or not app_config_instance:
+        error_msg = "任务启动失败：Flask 应用上下文或数据库/模型/配置不可用。"
+        logger.error(f"任务 {task_celery_id}: {error_msg}")
+        self.update_state(state='FAILURE', meta={'error': error_msg, 'stage': STAGE_START, 'exc_type': 'SetupError'})
+        # 不需要显式 raise，Celery 会根据状态处理
+        return # 终止任务
 
-        # 从配置获取临时文件基础目录并确保存在
-        base_temp_dir = Path(config.get('General', 'base_temp_dir', fallback='/tmp/ppt2video_temp'))
+    # 使用 with flask_app_instance.app_context() 来确保数据库等操作在正确的上下文中执行
+    with flask_app_instance.app_context():
+        task_record = None
         try:
-             base_temp_dir.mkdir(parents=True, exist_ok=True)
-             logger.info(f"任务 {task_id} 临时文件基础目录: {base_temp_dir}")
-        except OSError as e:
-             error_msg = f"任务 {task_id} 无法创建任务临时文件基础目录 {base_temp_dir}: {e}"
-             logger.error(error_msg, exc_info=True)
-             self.update_state(state='FAILURE', meta={'error': error_msg, 'exc_type': type(e).__name__, 'traceback': traceback.format_exc(), 'stage': STAGE_START})
-             raise RuntimeError(error_msg) from e
+            task_record = db_instance.session.get(TaskRecord_model, task_record_id)
+            if not task_record:
+                error_msg = f'数据库记录 TaskRecord ID {task_record_id} 未找到。'
+                logger.error(f"任务 {task_celery_id}: {error_msg}")
+                self.update_state(state='FAILURE', meta={'error': error_msg, 'stage': STAGE_START, 'exc_type': 'DBRecordNotFound'})
+                return
 
+            if task_record.celery_task_id != task_celery_id and task_record.celery_task_id.startswith("TEMP_"):
+                 logger.info(f"任务 {task_celery_id}: 更新 TaskRecord {task_record_id} 的 Celery ID 从 {task_record.celery_task_id} 到 {task_celery_id}.")
+                 task_record.celery_task_id = task_celery_id
+            
+            task_record.status = 'PROCESSING'
+            db_instance.session.commit()
+            logger.info(f"任务 {task_celery_id}: TaskRecord {task_record_id} 状态更新为 PROCESSING。")
+            self.update_state(state='STARTED', meta={'stage': STAGE_START, 'progress': 0})
 
-        pptx_filepath = Path(pptx_filepath_str)
-        output_dir_path = Path(output_dir_str) # 最终输出目录（来自 config 的绝对路径）
+            # --- 配置和路径准备 ---
+            # app_config_instance 是从 Flask app.config 中获取的 configparser 对象
+            current_task_config = app_config_instance 
+            base_temp_dir = Path(current_task_config.get('General', 'base_temp_dir', fallback='/tmp/ppt2video_temp'))
+            base_temp_dir.mkdir(parents=True, exist_ok=True)
 
+            pptx_filepath = Path(pptx_filepath_str)
+            output_base_path = Path(output_dir_str)
+            safe_original_stem = "".join(c if c.isalnum() or c in ('-', '_') else '_' for c in pptx_filepath.stem)
+            
+            # 使用 TaskRecord ID 来确保文件名的高度唯一性，并与数据库记录关联
+            # 这样即使原始文件名相同，不同任务的输出文件也不同
+            unique_video_filename = f"{safe_original_stem}_task{task_record_id}_{task_celery_id[:8]}.mp4"
+            final_video_full_path = output_base_path / unique_video_filename
+            final_video_relative_path = unique_video_filename # 这个将存储在数据库并返回
 
-        # --- 2. 处理演示文稿 (导出图片、提取备注、生成音频) ---
-        # 在每个主要阶段开始时更新状态
-        self.update_state(state='PROCESSING', meta={'stage': STAGE_PPT_PROCESSING, 'progress': 10})
-        logger.info("阶段 1/2: 处理演示文稿 (导出、备注、音频)...")
-        try:
-            # 调用 process_presentation_for_task，传递 logger, config, 以及任务实例 self
-            # process_presentation_for_task 内部也应发送更细粒度的状态
+            task_record.output_video_filename = final_video_relative_path # 预先记录
+            db_instance.session.commit()
+
+            # --- 核心处理 ---
+            self.update_state(state='PROCESSING', meta={'stage': STAGE_PPT_PROCESSING, 'progress': 10})
             processed_data, temp_run_dir = process_presentation_for_task(
-                pptx_filepath,
-                base_temp_dir, # 传递临时目录基础路径
-                voice_id,
-                logger,
-                config, # 传递 config
-                self # <--- 在这里传递任务实例 self
+                pptx_filepath, base_temp_dir, voice_id, logger, current_task_config, self
             )
+            self.update_state(state='PROCESSING', meta={'stage': STAGE_PPT_PROCESSING, 'progress': 45})
 
-            if processed_data is None or temp_run_dir is None:
-                 # process_presentation_for_task 失败时应该抛出异常，这里是双重检查
-                 raise RuntimeError("演示文稿处理失败或返回无效数据。请检查详细日志。")
-
-        except Exception as e:
-            # 捕获 process_presentation_for_task 抛出的异常
-            error_msg = f"任务 {task_id} 演示文稿处理步骤发生错误: {e}"
-            logger.error(error_msg, exc_info=True)
-            # 在更新状态时包含错误信息和当前阶段
-            # 如果在 process_presentation_for_task 内部已经 update_state 标记了失败状态和阶段，这里会覆盖
-            self.update_state(state='FAILURE', meta={'error': error_msg, 'exc_type': type(e).__name__, 'traceback': traceback.format_exc(), 'stage': STAGE_PPT_PROCESSING})
-            raise RuntimeError(error_msg) from e # 重新抛出异常
-
-        # process_presentation_for_task 成功完成后的进度更新
-        self.update_state(state='PROCESSING', meta={'stage': STAGE_PPT_PROCESSING, 'progress': 45, 'status': 'Presentation processing complete'})
-
-
-        # --- 3. 合成视频 (拼接、生成字幕、添加字幕) ---
-        # 在第二个主要阶段开始时更新状态
-        self.update_state(state='PROCESSING', meta={'stage': STAGE_VIDEO_SYNTHESIS, 'progress': 50})
-        logger.info("阶段 2/2: 合成视频 (拼接、字幕)...")
-
-        # 确保最终输出目录存在且有权限 (这一步在开始时和这里都检查了，双重保险)
-        try:
-             output_dir_path.mkdir(parents=True, exist_ok=True)
-             logger.debug(f"确保最终输出目录存在: {output_dir_path}")
-        except OSError as e:
-             error_msg = f"任务 {task_id} 无法创建最终输出目录 {output_dir_path}: {e}"
-             logger.error(error_msg, exc_info=True)
-             self.update_state(state='FAILURE', meta={'error': error_msg, 'exc_type': type(e).__name__, 'traceback': traceback.format_exc(), 'stage': STAGE_VIDEO_SYNTHESIS})
-             raise RuntimeError(error_msg) from e
-
-
-        # 构建最终视频文件路径 (包含任务ID和扩展名)
-        final_video_filename = f"{pptx_filepath.stem}_{task_id[:8]}.mp4"
-        final_video_full_path = output_dir_path / final_video_filename # 这是最终视频的完整路径
-
-        try:
-            # 调用 synthesize_video_for_task，传递 logger, config, 以及任务实例 self
-            # synthesize_video_for_task 内部会发送更细粒度的状态更新
+            self.update_state(state='PROCESSING', meta={'stage': STAGE_VIDEO_SYNTHESIS, 'progress': 50})
             synthesis_success = synthesize_video_for_task(
-                processed_data,
-                temp_run_dir, # 传递任务的临时目录
-                final_video_full_path, # <--- 传递最终视频的完整路径给 synthesize_video_for_task
-                logger,
-                config, # 传递 config
-                self # <--- 传递任务实例 self
+                processed_data, temp_run_dir, final_video_full_path, logger, current_task_config, self
             )
 
             if not synthesis_success:
-                # synthesize_video_for_task 失败时会返回 False，详细错误应已在内部记录
-                # 抛出异常，让 Celery 标记任务失败
-                raise RuntimeError("视频合成失败。请检查详细日志。")
+                raise RuntimeError("视频合成步骤返回失败。")
+
+            # --- 任务成功 ---
+            end_time = time.time()
+            duration = end_time - start_time
+            logger.info(f"任务 {task_celery_id} 成功！输出: {final_video_full_path.resolve()}，耗时: {duration:.2f}s")
+            self.update_state(state='PROCESSING', meta={'stage': STAGE_DB_UPDATE, 'progress': 95, 'status': '更新数据库记录...'})
+            
+            task_record.status = 'SUCCESS'
+            task_record.output_video_filename = final_video_relative_path # 确认文件名
+            task_record.completed_at = datetime.utcnow()
+            
+            user = db_instance.session.get(User_model, user_id)
+            if user:
+                if user.role == 'free':
+                    user.increment_video_count()
+                db_instance.session.add(user) # 确保更改被暂存
+                logger.info(f"用户 {user.username} ({user.role}) 视频计数更新为: {user.videos_created_count}")
+            else:
+                logger.warning(f"任务 {task_celery_id}: 未找到用户 ID {user_id} 来更新视频计数。")
+            
+            db_instance.session.commit()
+            logger.info(f"任务 {task_celery_id}: TaskRecord {task_record_id} 和 User {user_id} 已更新。")
+
+            self.update_state(state='SUCCESS', meta={
+                'stage': STAGE_COMPLETE, 'progress': 100,
+                'output_path': str(final_video_relative_path), 'duration': duration
+            })
+            return str(final_video_relative_path)
 
         except Exception as e:
-            # 捕获 synthesize_video_for_task 抛出的异常
-            error_msg = f"任务 {task_id} 视频合成步骤发生错误: {e}"
-            logger.error(error_msg, exc_info=True)
-            # 在更新状态时包含错误信息和当前阶段
-            # 如果在 synthesize_video_for_task 内部已经 update_state 标记了失败状态和阶段，这里会覆盖
-            self.update_state(state='FAILURE', meta={'error': error_msg, 'exc_type': type(e).__name__, 'traceback': traceback.format_exc(), 'stage': STAGE_VIDEO_SYNTHESIS})
-            raise RuntimeError(error_msg) from e
+            detailed_traceback = traceback.format_exc()
+            error_msg_for_user = f"任务处理失败: {type(e).__name__} - {str(e)[:200]}" # 给用户看的简短错误
+            error_msg_for_db = f"{type(e).__name__}: {str(e)}\n\nTraceback:\n{detailed_traceback}"
+            logger.error(f"任务 {task_celery_id} (DB Record: {task_record_id}) 失败: {e}", exc_info=True)
+
+            current_meta_for_celery = {}
+            try: # 尝试获取当前 meta，如果失败则使用空字典
+                current_meta_for_celery = self.request.get_current_task().info or {}
+            except Exception:
+                logger.warning(f"任务 {task_celery_id}: 获取当前任务 meta 失败。")
 
 
-        # --- 任务成功完成 ---
-        end_time = time.time()
-        duration = end_time - start_time
-        logger.info(f"任务 {task_id} 成功完成！最终输出文件: {final_video_full_path.resolve()}")
-        logger.info(f"总耗时: {duration:.2f} 秒")
+            self.update_state(state='FAILURE', meta={
+                **current_meta_for_celery,
+                'error': error_msg_for_user, # 用户可见的错误
+                'exc_type': type(e).__name__,
+                'traceback': detailed_traceback, # 详细堆栈给开发者
+                'stage': current_meta_for_celery.get('stage', 'Unhandled Error in Task')
+            })
 
-        # 更新最终状态为 SUCCESS
-        # 返回结果（最终视频路径相对于基础输出目录）
-        # config 中 base_output_dir 是 Web 服务下载的根目录
-        base_output_dir_config = Path(config.get('General', 'base_output_dir', fallback='./output'))
-        try:
-             # 计算最终视频文件相对于配置的 base_output_dir 的路径
-             relative_output_path = final_video_full_path.relative_to(base_output_dir_config)
-             final_result_path_str = str(relative_output_path)
-        except ValueError:
-             # 如果最终输出路径不在 config 中配置的基础输出目录 下
-             # 返回文件名部分，假定 Flask download_file 路由能处理
-             logger.warning(f"最终输出路径 '{final_video_full_path}' 不在配置的基础输出目录 '{base_output_dir_config}' 下，返回文件名。")
-             final_result_path_str = final_video_full_path.name # 返回文件名即可，方便前端构造下载 URL
+            if task_record:
+                task_record.status = 'FAILURE'
+                task_record.error_message = error_msg_for_db[:5000] # 限制长度以防数据库溢出
+                task_record.completed_at = datetime.utcnow()
+                try:
+                    db_instance.session.commit()
+                except Exception as db_error:
+                    logger.error(f"任务 {task_celery_id}: 更新 TaskRecord {task_record_id} 为 FAILURE 时数据库错误: {db_error}", exc_info=True)
+                    db_instance.session.rollback()
+            return # Celery 会知道任务失败了
 
-
-        # 更新最终状态为 SUCCESS，包含输出路径和总耗时
-        self.update_state(state=STAGE_COMPLETE, meta={
-            'stage': STAGE_COMPLETE, # 阶段
-            'progress': 100, # 进度
-            'output_path': final_result_path_str, # 返回路径字符串
-            'duration': duration # 总耗时
-        })
-        return final_result_path_str # 返回结果字符串给 Celery Backend
-
-    except Exception as e:
-        # --- 捕获所有未被特定阶段捕获的异常 ---
-        # 这通常发生在阶段之间的代码或 finally 块之前
-        error_msg = f"任务 {task_id} 处理过程中发生未被捕获的错误: {e}"
-        logger.error(error_msg, exc_info=True)
-
-        # 标记任务失败，并在 meta 中包含错误信息、异常类型和堆栈跟踪
-        # 如果在前面的 try 块中已经 update_state 标记了失败状态和阶段，这里不会再次触发
-        # 如果是未被特定阶段捕获的错误，就使用通用的 FAILURE 状态
-        current_meta = self.request.get_current_task().info # 获取当前状态信息
-        if current_meta and 'stage' in current_meta:
-             # 如果已经有阶段信息，只补充错误详情
-             self.update_state(
-                 state='FAILURE',
-                 meta={
-                     **current_meta, # 保留原有的 meta 信息
-                     'error': str(e), # 异常的字符串表示
-                     'exc_type': type(e).__name__, # 异常类型名称
-                     'traceback': traceback.format_exc() # 完整的堆栈跟踪
-                 }
-             )
-        else:
-            # 如果没有阶段信息，说明在阶段之间或初始化时失败
-            self.update_state(
-                state='FAILURE',
-                meta={
-                    'error': str(e),
-                    'exc_type': type(e).__name__,
-                    'traceback': traceback.format_exc(),
-                    'stage': 'Unhandled Error' # 添加一个通用阶段
-                }
-            )
-
-        # 重新抛出异常，让 Celery Backend 记录到结果存储中
-        raise e # 抛出异常非常重要，否则 Celery 会认为任务成功
+        finally:
+            logger.info(f"任务 {task_celery_id}: Finally 块开始执行清理。")
+            # 使用 current_task_config (从 flask_app.config['APP_CONFIG'] 获取)
+            cleanup_temp = current_task_config.getboolean('General', 'cleanup_temp_dir', fallback=True)
+            if temp_run_dir and temp_run_dir.exists():
+                if cleanup_temp:
+                    logger.info(f"任务 {task_celery_id}: 清理临时目录: {temp_run_dir}")
+                    try:
+                        shutil.rmtree(temp_run_dir)
+                        logger.info(f"任务 {task_celery_id}: 临时目录已清理。")
+                    except Exception as clean_e:
+                        logger.error(f"任务 {task_celery_id}: 清理临时目录 {temp_run_dir} 失败: {clean_e}", exc_info=True)
+                else:
+                    logger.info(f"任务 {task_celery_id}: 临时文件保留于: {temp_run_dir} (cleanup_temp_dir=False)")
+            elif temp_run_dir:
+                 logger.info(f"任务 {task_celery_id}: 临时目录 {temp_run_dir} 未找到，无需清理。")
 
 
-    finally:
-        # --- 清理临时文件 ---
-        # 在清理阶段开始时更新状态 (可能会在失败时也执行)
-        self.update_state(state='PROCESSING', meta={'stage': STAGE_CLEANUP, 'progress': 98})
-        logger.info(f"任务 {task_id} 的 finally 块开始执行清理。")
-        cleanup_temp = config.getboolean('General', 'cleanup_temp_dir', fallback=True)
-        # 只有当 temp_run_dir 变量在 try 块中被成功赋值后才尝试清理
-        if cleanup_temp and temp_run_dir and temp_run_dir.exists():
-            logger.info(f"任务 {task_id} 正在清理临时目录: {temp_run_dir}")
-            try:
-                shutil.rmtree(temp_run_dir)
-                logger.info("临时目录已清理。")
-            except Exception as clean_e:
-                logger.error(f"清理临时目录 {temp_run_dir} 失败: {clean_e}", exc_info=True)
-        elif temp_run_dir and temp_run_dir.exists():
-             logger.info(f"任务 {task_id} 临时文件保留于: {temp_run_dir} (cleanup_temp = False)")
-
-
-# --- 可选：在 worker 启动时执行一些初始化操作 ---
-# ... (worker_init 函数保持不变) ...
-@signals.worker_init.connect
-def worker_init(**kwargs):
-    logger = logging.getLogger('celery')
-    logger.info("Celery worker 正在初始化...")
-
-    config = configparser.ConfigParser()
-    config_path = Path(__file__).parent.parent / 'config.ini'
-    if config_path.exists():
-        try:
-            config.read(config_path, encoding='utf-8')
-            logger.info("Worker 初始化：成功加载配置。")
-        except Exception as e:
-            logger.error(f"Worker 初始化：加载配置 {config_path} 失败: {e}", exc_info=True)
-
-    logger.info("Worker 初始化：检查外部依赖工具...")
-    dependencies_ok = True
-    tools_to_check = ["ffmpeg", "ffprobe", "soffice"]
-
-    temp_config_for_check = configparser.ConfigParser()
-    if config_path.exists(): temp_config_for_check.read(config_path, encoding='utf-8')
-
-    for tool in tools_to_check:
-        try:
-             if get_tool_path(tool, logger, temp_config_for_check) is None:
-                 logger.error(f"Worker 初始化：外部工具 '{tool}' 未找到。依赖于 '{tool}' 的任务可能会失败。")
-                 dependencies_ok = False
-        except Exception as e:
-             logger.error(f"Worker 初始化：检查工具 '{tool}' 时发生错误: {e}", exc_info=True)
-             dependencies_ok = False
-
-    python_libs_check_ok = True
-    libs_to_check = ['core_logic.ppt_processor', 'core_logic.video_synthesizer', 'core_logic.tts_manager_edge', 'core_logic.utils', 'stable_whisper', 'PIL', 'opencc']
-    for lib_name in libs_to_check:
-         try:
-              import importlib
-              importlib.import_module(lib_name)
-              logger.info(f"Worker 初始化：Python 模块 '{lib_name}' 导入成功。")
-         except ImportError:
-              logger.error(f"Worker 初始化：Python 库/模块 '{lib_name}' 未导入。依赖于它的任务将失败。")
-              python_libs_check_ok = False
-         except Exception as e:
-              logger.error(f"Worker 初始化：导入 Python 模块 '{lib_name}' 时发生意外错误: {e}", exc_info=True)
-              python_libs_check_ok = False
-
-
-    if dependencies_ok and python_libs_check_ok:
-        logger.info("Worker 初始化：核心外部依赖和 Python 库检查通过。Worker 就绪。")
-    else:
-        logger.error("Worker 初始化：部分外部依赖或 Python 库检查未通过。请确保所有必需的软件和库已安装。")
-
-
-# --- 获取可用语音列表的函数 ---
-# 这个函数通常由 Web 前端调用，需要从 tasks 模块导入到 app.py
+# --- 获取可用语音列表的函数 (供 app.py 调用) ---
 def get_available_tts_voices(logger: logging.Logger) -> list[dict]:
-    """
-    获取可用 TTS 语音列表。
-    """
-    # 直接调用 core_logic 中的函数
     return get_available_tts_voices_core(logger)
+
+
+# --- Worker 初始化信号处理 ---
+@signals.worker_init.connect
+def worker_init_handler(**kwargs):
+    worker_logger = logging.getLogger('celery.worker.init')
+    worker_logger.info("Celery worker 正在初始化 (tasks.py worker_init_handler)...")
+    # 可以在这里做一些不依赖 Flask app context 的全局初始化
+    # 例如，加载一些全局配置或模型（如果它们不直接操作数据库）
+    # 确保 FLASK_CONTEXT_AVAILABLE 检查在需要时进行
+    if not FLASK_CONTEXT_AVAILABLE:
+        worker_logger.critical("Flask 应用上下文在 worker 初始化时不可用。依赖数据库的任务可能无法正确执行。")
+    else:
+        worker_logger.info("Flask 应用上下文在 worker 初始化时似乎可用。")
+    worker_logger.info("Worker 初始化完成。")
+

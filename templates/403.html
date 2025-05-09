@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+
+{% block title %}禁止访问 - 403 - {{ super() }}{% endblock %}
+
+{% block content %}
+<div class="container error-page-container">
+    <h1>403 - 禁止访问</h1>
+    <p class="subtitle">抱歉，您没有权限访问此页面。</p>
+    <p>如果您认为这是一个错误，请联系管理员。</p>
+    <p><a href="{{ url_for('index') }}" class="btn-back">返回首页</a></p>
+</div>
+{% endblock %}

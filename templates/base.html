@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <title>{% block title %}PPT 转视频{% endblock %}</title>
+</head>
+<body>
+    <header class="site-header">
+        <nav class="navbar">
+            <a class="navbar-brand" href="{{ url_for('index') }}">PPT2Video</a>
+            <div class="navbar-nav">
+                {% if current_user.is_authenticated %}
+                    <a class="nav-item nav-link" href="{{ url_for('index') }}">主页</a>
+                    <a class="nav-item nav-link" href="{{ url_for('dashboard') }}">我的任务</a>
+                    <span class="nav-item nav-link username-display">用户: {{ current_user.username }} ({{ current_user.role }})</span>
+                    <a class="nav-item nav-link" href="{{ url_for('logout') }}">登出</a>
+                {% else %}
+                    <a class="nav-item nav-link" href="{{ url_for('login') }}">登录</a>
+                    <a class="nav-item nav-link" href="{{ url_for('register') }}">注册</a>
+                {% endif %}
+            </div>
+        </nav>
+    </header>
+
+    {# main-content 将作为 flex 容器来居中其内部的 .container div #}
+    <main role="main" class="main-content"> 
+        {# Flash messages should be inside the block or a consistently styled area #}
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="flash-messages-container" style="width: 100%; max-width: 700px; margin: 0 auto 15px auto;"> {# Centered flash messages #}
+                {% for category, message in messages %}
+                    <div class="message {{ category }}">{{ message }}</div>
+                {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        {# The actual page content, which will typically start with its own <div class="container..."> #}
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="site-footer">
+        <div class="container footer-container"> {# Added .footer-container for potential specific footer styling #}
+            <p>&copy; {{ now.year }} PPT2Video 服务. 保留所有权利.</p>
+        </div>
+    </footer>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

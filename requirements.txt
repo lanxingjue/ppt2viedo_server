@@ -12,3 +12,9 @@ aiohttp # edge-tts 依赖
 charset-normalizer # aiohttp 可能依赖
 opencc-python-reimplemented # 如果需要繁简转换
 gunicorn # WSGI 服务器 (部署时用)
+Flask-SQLAlchemy 
+Flask-Login 
+Flask-WTF 
+email-validator 
+Werkzeug 
+Flask-Migrate

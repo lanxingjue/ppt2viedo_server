@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}我的任务 - {{ super() }}{% endblock %}
+
+{% block content %}
+<div class="container dashboard-container">
+    <h1>我的任务历史</h1>
+    <p class="subtitle">查看您已创建和正在处理的视频任务。</p>
+
+    {% if tasks %}
+        <div class="task-list">
+            {% for task_item in tasks %}
+            <div class="task-item {% if task_item.status == 'SUCCESS' or task_item.status == 'COMPLETE' %}task-success{% elif task_item.status == 'FAILURE' %}task-failure{% else %}task-processing{% endif %}">
+                <div class="task-info">
+                    <p><strong>原始PPT:</strong> {{ task_item.original_ppt_filename or 'N/A' }}</p>
+                    <p><strong>创建时间:</strong> {{ task_item.created_at.strftime('%Y-%m-%d %H:%M:%S') if task_item.created_at else 'N/A' }} UTC</p>
+                    <p><strong>状态:</strong> <span class="status-text-{{ task_item.status | lower }}">{{ task_item.status }}</span></p>
+                    {% if task_item.status == 'SUCCESS' or task_item.status == 'COMPLETE' %}
+                        {% if task_item.output_video_filename %}
+                            <p><strong>视频文件:</strong> {{ task_item.output_video_filename }}</p>
+                            <p><strong>完成时间:</strong> {{ task_item.completed_at.strftime('%Y-%m-%d %H:%M:%S') if task_item.completed_at else 'N/A' }} UTC</p>
+                        {% else %}
+                            <p class="warning-text">视频文件信息丢失。</p>
+                        {% endif %}
+                    {% elif task_item.status == 'FAILURE' %}
+                        <p class="error-text"><strong>错误:</strong> {{ task_item.error_message or '未知错误，请查看任务详情。' }}</p>
+                    {% endif %}
+                </div>
+                <div class="task-actions">
+                    <a href="{{ url_for('task_status', task_id=task_item.celery_task_id) }}" class="btn-action btn-view-status">查看状态</a>
+                    {% if task_item.status == 'SUCCESS' or task_item.status == 'COMPLETE' and task_item.output_video_filename %}
+                        {# 构造下载链接，确保 filename 是安全的 #}
+                        <a href="{{ url_for('download_file', filename=task_item.output_video_filename, task_record_id=task_item.id) }}" class="btn-action btn-download-task">下载视频</a>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="message info">
+            <p>您还没有创建任何任务。</p>
+            <p><a href="{{ url_for('index') }}" class="btn-link">立即创建一个！</a></p>
+        </div>
+    {% endif %}
+     <div style="margin-top: 20px;">
+        <a href="{{ url_for('index') }}" class="btn-back">创建新任务</a>
+    </div>
+</div>
+{% endblock %}

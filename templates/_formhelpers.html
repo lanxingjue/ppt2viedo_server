@@ -1,0 +1,31 @@
+{# templates/_formhelpers.html - 用于渲染 WTForms 字段和错误 #}
+
+{% macro render_field(field, label_visible=true) %}
+  <div class="form-group {% if field.errors %}has-error{% endif %}">
+    {% if label_visible and field.label %}
+      {{ field.label(class="form-label") }}
+    {% endif %}
+    
+    {# 根据字段类型选择合适的渲染方式 #}
+    {% if field.type == 'StringField' or field.type == 'EmailField' or field.type == 'PasswordField' %}
+      {{ field(class="form-control", placeholder=field.label.text if not label_visible else '') }}
+    {% elif field.type == 'BooleanField' %}
+      <div class="form-check">
+        {{ field(class="form-check-input") }}
+        {{ field.label(class="form-check-label") }}
+      </div>
+    {% elif field.type == 'SubmitField' %}
+        {{ field(class="btn-submit") }} {# 使用我们已有的按钮样式 #}
+    {% else %}
+      {{ field(class="form-control") }}
+    {% endif %}
+    
+    {% if field.errors %}
+      <ul class="errors">
+        {% for error in field.errors %}
+          <li class="error-message">{{ error }}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  </div>
+{% endmacro %}

@@ -1,27 +1,23 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PPT 转视频 - 霓虹赛博</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-</head>
-<body>
-    <div class="container">
-        <h1>PPT 转视频</h1>
-        <p class="subtitle">将您的 PowerPoint 演示文稿转换为霓虹炫彩视频</p>
+{% extends "base.html" %} {# 继承基础模板 #}
 
-        {% if error %}
-            <div class="message error">{{ error }}</div>
-        {% endif %}
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                {% for category, message in messages %}
-                <div class="message {{ category }}">{{ message }}</div>
-                {% endfor %}
+{% block title %}PPT 转视频 - {{ super() }}{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1>PPT 转视频</h1>
+    <p class="subtitle">将您的 PowerPoint 演示文稿转换为霓虹炫彩视频</p>
+
+    {# 根据用户是否可以创建视频以及原因显示不同信息 #}
+    {% if not can_create %}
+        <div class="message warning">
+            <p>抱歉，您目前无法创建新的视频。</p>
+            <p>原因: {{ current_user.role }} 用户已达到视频创建上限 {{ limit_info }}。</p>
+            {% if current_user.role == 'free' %}
+            <p>考虑升级到 VIP 以享受无限创建次数！(此功能待开发)</p>
             {% endif %}
-        {% endwith %}
-
+        </div>
+    {% else %}
+        <p class="note">您当前是 {{ current_user.role }} 用户。可用额度: {{ limit_info }} </p>
         <form action="{{ url_for('index') }}" method="post" enctype="multipart/form-data" class="upload-form">
             <div class="form-group">
                 <label for="pptx_file" class="file-label">选择 PPTX 文件 (.pptx)</label>
@@ -31,7 +27,8 @@
 
             <div class="form-group">
                  <label for="voice_id" class="voice-label">选择旁白语音:</label>
-                 <div class="voice-selection-group"> <div class="voice-select-wrapper">
+                 <div class="voice-selection-group">
+                    <div class="voice-select-wrapper">
                          <select id="voice_id" name="voice_id" required class="voice-select">
                              {% if voices %}
                                  {% for voice in voices %}
@@ -55,24 +52,31 @@
                 <span class="btn-glow"></span>
             </button>
         </form>
+    {% endif %}
 
-        <p class="note">注意: 转换过程需要一定时间，请耐心等待。</p>
-        <p class="note">请确保服务器环境已安装并配置好 LibreOffice、Poppler 和 FFmpeg。</p>
-        <p class="note">语音合成需要服务器联网访问微软 Edge TTS 服务。</p>
-    </div>
+    <p class="note">注意: 转换过程需要一定时间，请耐心等待。</p>
+    <p class="note">请确保服务器环境已安装并配置好 LibreOffice、Poppler 和 FFmpeg。</p>
+    <p class="note">语音合成需要服务器联网访问微软 Edge TTS 服务。</p>
+</div>
+{% endblock %}
 
+{% block scripts %}
+    {{ super() }} {# 如果 base.html 中有脚本，先加载它们 #}
     <script>
         // 显示选中的文件名
         const fileInput = document.getElementById('pptx_file');
         const fileNameSpan = document.getElementById('file-name');
 
-        fileInput.addEventListener('change', function() {
-            if (fileInput.files.length > 0) {
-                fileNameSpan.textContent = fileInput.files[0].name;
-            } else {
-                fileNameSpan.textContent = '未选择文件';
-            }
-        });
+        if (fileInput) { // 确保元素存在
+            fileInput.addEventListener('change', function() {
+                if (fileInput.files.length > 0) {
+                    fileNameSpan.textContent = fileInput.files[0].name;
+                } else {
+                    fileNameSpan.textContent = '未选择文件';
+                }
+            });
+        }
+
 
         // 语音试听功能
         const listenButton = document.getElementById('listen-voice-btn');
@@ -81,54 +85,56 @@
         const audioPlayer = document.getElementById('audio-preview-player');
         const previewStatusMessage = document.getElementById('preview-status-message');
 
-        listenButton.addEventListener('click', function() {
-            const selectedVoiceId = voiceSelect.value;
-            if (!selectedVoiceId) {
-                previewStatusMessage.textContent = '请先选择一个语音！';
-                previewStatusMessage.style.color = 'var(--warning-color)';
-                audioPreviewContainer.style.display = 'block'; // 显示消息容器
-                audioPlayer.style.display = 'none'; // 隐藏播放器
-                return;
-            }
+        if (listenButton) { // 确保元素存在
+            listenButton.addEventListener('click', function() {
+                const selectedVoiceId = voiceSelect.value;
+                if (!selectedVoiceId) {
+                    previewStatusMessage.textContent = '请先选择一个语音！';
+                    previewStatusMessage.style.color = 'var(--warning-color)';
+                    audioPreviewContainer.style.display = 'block';
+                    if(audioPlayer) audioPlayer.style.display = 'none';
+                    return;
+                }
 
-            previewStatusMessage.textContent = '正在获取试听音频...';
-            previewStatusMessage.style.color = 'var(--text-color)';
-            audioPreviewContainer.style.display = 'block';
-            audioPlayer.style.display = 'none'; // 获取时先隐藏播放器
-            listenButton.disabled = true; // 防止重复点击
-            listenButton.textContent = '加载中...';
+                previewStatusMessage.textContent = '正在获取试听音频...';
+                previewStatusMessage.style.color = 'var(--text-color)';
+                audioPreviewContainer.style.display = 'block';
+                if(audioPlayer) audioPlayer.style.display = 'none';
+                listenButton.disabled = true;
+                listenButton.textContent = '加载中...';
 
-
-            fetch(`/preview_tts/${selectedVoiceId}`)
-                .then(response => {
-                    if (!response.ok) {
-                        return response.json().then(err => { // 尝试解析 JSON 错误信息
-                            throw new Error(err.error || `服务器错误: ${response.status}`);
-                        }).catch(() => { // 如果 JSON 解析失败，则抛出通用错误
-                            throw new Error(`获取试听音频失败，服务器状态: ${response.status}`);
-                        });
-                    }
-                    return response.blob(); // 获取音频 Blob 数据
-                })
-                .then(blob => {
-                    const audioUrl = URL.createObjectURL(blob);
-                    audioPlayer.src = audioUrl;
-                    audioPlayer.style.display = 'block'; // 显示播放器
-                    audioPlayer.play();
-                    previewStatusMessage.textContent = '试听准备就绪。';
-                    previewStatusMessage.style.color = 'var(--success-color)';
-                })
-                .catch(error => {
-                    console.error('试听功能错误:', error);
-                    previewStatusMessage.textContent = `试听失败: ${error.message}`;
-                    previewStatusMessage.style.color = 'var(--error-color)';
-                    audioPlayer.style.display = 'none';
-                })
-                .finally(() => {
-                    listenButton.disabled = false; // 恢复按钮
-                    listenButton.textContent = '试听';
-                });
-        });
+                fetch(`/preview_tts/${selectedVoiceId}`)
+                    .then(response => {
+                        if (!response.ok) {
+                            return response.json().then(err => {
+                                throw new Error(err.error || `服务器错误: ${response.status}`);
+                            }).catch(() => {
+                                throw new Error(`获取试听音频失败，服务器状态: ${response.status}`);
+                            });
+                        }
+                        return response.blob();
+                    })
+                    .then(blob => {
+                        const audioUrl = URL.createObjectURL(blob);
+                        if(audioPlayer) {
+                            audioPlayer.src = audioUrl;
+                            audioPlayer.style.display = 'block';
+                            audioPlayer.play();
+                        }
+                        previewStatusMessage.textContent = '试听准备就绪。';
+                        previewStatusMessage.style.color = 'var(--success-color)';
+                    })
+                    .catch(error => {
+                        console.error('试听功能错误:', error);
+                        previewStatusMessage.textContent = `试听失败: ${error.message}`;
+                        previewStatusMessage.style.color = 'var(--error-color)';
+                        if(audioPlayer) audioPlayer.style.display = 'none';
+                    })
+                    .finally(() => {
+                        listenButton.disabled = false;
+                        listenButton.textContent = '试听';
+                    });
+            });
+        }
     </script>
-</body>
-</html>
+{% endblock %}

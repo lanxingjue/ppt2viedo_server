@@ -9,48 +9,134 @@
     --error-color: #ff0000;
     --success-color: #00ff00;
     --warning-color: #ffff00;
-    --progress-bar-bg: #333; /* 进度条背景色 */
-    --progress-bar-fill-color: var(--glow-color); /* 进度条填充色 */
+    --progress-bar-bg: #333;
+    --progress-bar-fill-color: var(--glow-color);
+    --link-color: var(--accent-color);
+    --link-hover-color: var(--glow-color);
+    --input-bg-color: #222;
+    --input-border-color: var(--glow-color);
+    --input-text-color: var(--text-color);
+}
+
+html, body {
+    height: 100%; /* Ensure html and body take full height */
+    margin: 0;
+    padding: 0;
 }
 
 body {
-    font-family: 'Courier New', Courier, monospace; /* 模拟终端字体 */
+    font-family: 'Courier New', Courier, monospace;
     background-color: var(--bg-color);
     color: var(--text-color);
-    margin: 0;
-    padding: 20px;
     display: flex;
-    justify-content: center;
-    align-items: center;
-    min-height: 100vh;
+    flex-direction: column; /* Arrange children (header, main, footer) vertically */
+    min-height: 100vh; /* Ensure body takes at least full viewport height */
     box-sizing: border-box;
 }
 
-.container {
-    background-color: #1a1a1a; /* 深灰背景 */
-    border: 2px solid var(--accent-color); /* 紫色边框 */
-    box-shadow: 0 0 10px var(--accent-color); /* 紫色外发光 */
-    padding: 40px;
+.container { /* This is for the main content block on each page */
+    background-color: #1a1a1a;
+    border: 2px solid var(--accent-color);
+    box-shadow: 0 0 10px var(--accent-color);
+    padding: 30px 40px;
     border-radius: 10px;
     text-align: center;
-    max-width: 600px;
+    max-width: 700px; 
+    width: 90%; 
+    box-sizing: border-box;
+    margin-top: 20px; /* Space from header or flash messages */
+    margin-bottom: 20px; /* Space before footer */
+}
+
+/* --- Header and Navbar --- */
+.site-header {
     width: 100%;
+    background-color: #111;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--accent-color);
+    box-shadow: 0 2px 10px rgba(255, 0, 255, 0.3);
+    /* Removed margin-bottom, main-content will handle spacing */
+}
+
+.navbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 20px;
+}
+
+.navbar-brand {
+    color: var(--glow-color);
+    font-size: 1.8em;
+    text-decoration: none;
+    font-weight: bold;
+    text-shadow: 0 0 5px var(--glow-color);
+}
+
+.navbar-nav {
+    display: flex;
+    align-items: center;
+}
+
+.nav-item.nav-link {
+    color: var(--text-color);
+    text-decoration: none;
+    padding: 8px 15px;
+    margin-left: 10px;
+    border-radius: 4px;
+    transition: background-color 0.3s, color 0.3s, text-shadow 0.3s;
+}
+
+.nav-item.nav-link:hover {
+    background-color: var(--accent-color);
+    color: var(--bg-color);
+    text-shadow: 0 0 5px var(--bg-color);
+}
+
+.username-display {
+    color: var(--warning-color);
+    margin-right: 15px;
+    font-size: 0.9em;
+}
+
+
+/* --- Main Content Area --- */
+.main-content {
+    flex-grow: 1; /* Allows main to take up available space */
+    width: 100%;
+    display: flex; /* Enable flexbox */
+    flex-direction: column; /* Stack children vertically (flash messages, then page content) */
+    justify-content: flex-start; /* Align children to the start (top) */
+    align-items: center; /* Center children horizontally */
+    padding: 20px 0; /* Add some vertical padding */
     box-sizing: border-box;
 }
+
+.flash-messages-container { /* This div is in base.html */
+    width: 100%;
+    max-width: 700px; /* Match .container width */
+    margin-bottom: 15px; /* Space below flash messages */
+    /* text-align will be inherited or can be set if needed */
+}
+
 
 h1 {
     color: var(--glow-color);
     text-shadow: 0 0 5px var(--glow-color), 0 0 10px var(--glow-color), 0 0 15px var(--glow-color), 0 0 20px var(--glow-spread);
-    animation: flicker 1.5s infinite alternate; /* 添加闪烁动画 */
+    animation: flicker 1.5s infinite alternate;
+    margin-bottom: 15px;
 }
 
 .subtitle {
     color: var(--text-color);
     margin-top: -10px;
     margin-bottom: 30px;
+    font-size: 1.1em;
 }
 
-.upload-form {
+.upload-form, .auth-form {
     margin-top: 20px;
 }
 
@@ -59,70 +145,83 @@ h1 {
     text-align: left;
 }
 
-/* 为试听按钮和下拉菜单布局 */
-.voice-selection-group {
-    display: flex;
-    align-items: center;
-    gap: 10px; /* 元素之间的间隙 */
-}
-
-.voice-select-wrapper {
-    flex-grow: 1; /* 让下拉菜单占据更多空间 */
-}
-
-
-.file-label, .voice-label {
+.form-label {
     display: block;
     margin-bottom: 8px;
     color: var(--accent-color);
     text-shadow: 0 0 3px var(--accent-color);
 }
 
-.file-input {
-    display: none; /* 隐藏默认文件输入 */
+.form-control, .voice-select {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid var(--input-border-color);
+    background-color: var(--input-bg-color);
+    color: var(--input-text-color);
+    border-radius: 4px;
+    box-sizing: border-box;
+    transition: border-color 0.3s, box-shadow 0.3s;
 }
 
+.form-control:focus, .voice-select:focus {
+    outline: none;
+    border-color: var(--accent-color);
+    box-shadow: 0 0 8px var(--accent-color);
+}
+
+.file-label {
+    display: block;
+    margin-bottom: 8px;
+    color: var(--accent-color);
+    text-shadow: 0 0 3px var(--accent-color);
+}
+.file-input { display: none; }
 .file-name {
     display: inline-block;
-    background-color: #333;
-    color: var(--text-color);
+    background-color: var(--input-bg-color);
+    color: var(--input-text-color);
     padding: 10px;
-    border: 1px solid var(--glow-color);
+    border: 1px solid var(--input-border-color);
     border-radius: 4px;
     margin-left: 10px;
     min-width: 200px;
-    text-overflow: ellipsis; /* 文本溢出显示省略号 */
+    text-overflow: ellipsis;
     overflow: hidden;
     white-space: nowrap;
 }
 
+.voice-label {
+    display: block;
+    margin-bottom: 8px;
+    color: var(--accent-color);
+    text-shadow: 0 0 3px var(--accent-color);
+}
+.voice-selection-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.voice-select-wrapper { flex-grow: 1; }
 .voice-select {
-     width: 100%; /* 调整宽度以适应父容器 */
-     padding: 10px;
-     border: 1px solid var(--glow-color);
-     background-color: #333;
-     color: var(--text-color);
-     border-radius: 4px;
-     appearance: none; /* 移除默认下拉箭头 */
+     appearance: none;
      background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%2300ffff%22%20d%3D%22M287%2C114.7L159.1%2C242.6c-4.7%2C4.7-12.3%2C4.7-17%2C0L5.4%2C114.7c-4.7-4.7-4.7-12.3%2C0-17l19.6-19.6c4.7-4.7%2C12.3-4.7%2C17%2C0l113.3%2C113.3l113.3-113.3c4.7-4.7%2C12.3-4.7%2C17%2C0l19.6%2C19.6C291.7%2C102.4%2C291.7%2C110%2C287%2C114.7z%22%2F%3E%3C%2Fsvg%3E");
      background-repeat: no-repeat;
      background-position: right 10px top 50%;
      background-size: 12px auto;
 }
 
-
-.btn-submit, .btn-download, .btn-back, .btn-listen { /* 添加 .btn-listen */
+.btn-submit, .btn-download, .btn-back, .btn-listen, .btn-action, .auth-btn {
     position: relative;
     display: inline-block;
     padding: 12px 25px;
     color: var(--glow-color);
-    font-size: 18px;
+    font-size: 16px;
     text-decoration: none;
     text-transform: uppercase;
     overflow: hidden;
     transition: 0.5s;
-    margin-top: 20px;
-    letter-spacing: 3px;
+    margin-top: 10px;
+    letter-spacing: 2px;
     background: none;
     border: 2px solid var(--glow-color);
     cursor: pointer;
@@ -130,20 +229,17 @@ h1 {
     font-family: 'Courier New', Courier, monospace;
 }
 
-.btn-listen { /* 试听按钮特定样式 */
-    padding: 8px 15px;
-    font-size: 14px;
-    margin-top: 0; /* 调整边距使其与下拉框对齐 */
-    letter-spacing: 1px;
-}
-
-
-.btn-submit:hover, .btn-download:hover, .btn-back:hover, .btn-listen:hover { /* 添加 .btn-listen:hover */
+.btn-submit:hover, .btn-download:hover, .btn-back:hover, .btn-listen:hover, .btn-action:hover, .auth-btn:hover {
     background: var(--glow-color);
     color: var(--bg-color);
     box-shadow: 0 0 5px var(--glow-color), 0 0 25px var(--glow-color), 0 0 50px var(--glow-color), 0 0 100px var(--glow-color);
 }
 
+.btn-listen {
+    padding: 8px 15px;
+    font-size: 14px;
+    margin-top: 0;
+}
 .btn-download {
     background: var(--success-color);
     border-color: var(--success-color);
@@ -151,93 +247,273 @@ h1 {
     box-shadow: 0 0 5px var(--success-color);
     animation: pulse 1.5s infinite;
 }
-
 .btn-download:hover {
     background: var(--success-color);
-    box-shadow: 0 0 5px var(--success-color), 0 0 25px var(--success-color), 0 0 50px var(--success-color), 0 0 100px var(--success-color);
     animation: none;
 }
-
-
-.message {
-    padding: 10px;
-    margin-bottom: 15px;
-    border-radius: 4px;
-    text-align: center;
-    border: 1px solid;
+.auth-btn {
+    width: 100%;
+    margin-top: 25px;
 }
 
+.message {
+    padding: 12px 15px;
+    margin-bottom: 20px;
+    border-radius: 5px;
+    text-align: center;
+    border: 1px solid;
+    font-size: 0.95em;
+    box-sizing: border-box; /* Ensure padding doesn't make it wider than container */
+}
 .message.error {
-    background-color: rgba(255, 0, 0, 0.1); /* 半透明红色背景 */
+    background-color: rgba(255, 0, 0, 0.15);
     color: var(--error-color);
     border-color: var(--error-color);
     text-shadow: 0 0 2px var(--error-color);
 }
 .message.success {
-    background-color: rgba(0, 255, 0, 0.1);
+    background-color: rgba(0, 255, 0, 0.15);
     color: var(--success-color);
     border-color: var(--success-color);
     text-shadow: 0 0 2px var(--success-color);
 }
 .message.info {
-    background-color: rgba(0, 255, 255, 0.1);
+    background-color: rgba(0, 255, 255, 0.15);
     color: var(--text-color);
     border-color: var(--text-color);
     text-shadow: 0 0 2px var(--text-color);
 }
+.message.warning {
+    background-color: rgba(255, 255, 0, 0.15);
+    color: var(--warning-color);
+    border-color: var(--warning-color);
+    text-shadow: 0 0 2px var(--warning-color);
+}
 
 .status-box {
     margin-top: 20px;
-    padding: 20px;
+    padding: 25px;
     border: 1px dashed var(--text-color);
     border-radius: 5px;
+    background-color: rgba(0, 0, 0, 0.2);
 }
-
 .status-text {
     font-weight: bold;
     text-shadow: 0 0 3px;
 }
-
-/* 进度条样式 */
 .progress-container {
     width: 100%;
     background-color: var(--progress-bar-bg);
     border-radius: 5px;
     margin-top: 15px;
     margin-bottom: 15px;
-    padding: 3px; /* 轻微内边距，使填充条不紧贴边框 */
-    display: flex; /* 使用 flex 布局对齐进度条和百分比文本 */
-    align-items: center; /* 垂直居中对齐 */
-    border: 1px solid var(--glow-color); /* 与其他元素一致的边框 */
+    padding: 3px;
+    display: flex;
+    align-items: center;
+    border: 1px solid var(--glow-color);
 }
-
 .progress-bar {
-    flex-grow: 1; /* 让进度条本身占据可用空间 */
+    flex-grow: 1;
     height: 20px;
-    background-color: var(--progress-bar-bg); /* 背景色保持一致或略深 */
-    border-radius: 3px; /* 内部进度条的圆角 */
-    overflow: hidden; /* 确保填充条不会溢出圆角 */
+    background-color: var(--progress-bar-bg);
+    border-radius: 3px;
+    overflow: hidden;
 }
-
 .progress-bar-fill {
-    width: 0%; /* 初始宽度为0 */
+    width: 0%;
     height: 100%;
     background-color: var(--progress-bar-fill-color);
-    border-radius: 3px; /* 与父元素一致的圆角 */
-    transition: width 0.3s ease-in-out; /* 平滑过渡效果 */
-    box-shadow: 0 0 5px var(--progress-bar-fill-color), 0 0 10px var(--progress-bar-fill-color); /* 发光效果 */
+    border-radius: 3px;
+    transition: width 0.3s ease-in-out;
+    box-shadow: 0 0 5px var(--progress-bar-fill-color), 0 0 10px var(--progress-bar-fill-color);
 }
-
 .progress-percentage-text {
-    margin-left: 10px; /* 百分比文本与进度条的间距 */
+    margin-left: 10px;
     color: var(--text-color);
     font-size: 0.9em;
-    min-width: 40px; /* 给百分比文本一个最小宽度，防止跳动 */
-    text-align: right; /* 如果希望数字靠右对齐 */
+    min-width: 40px;
+    text-align: right;
+}
+#error-details {
+    max-height: 200px;
+    overflow-y: auto;
+    background-color: #2b0000;
+    border: 1px solid var(--error-color);
+    color: #ffcccc;
 }
 
+.auth-container {
+    max-width: 450px;
+}
+.auth-form .form-group {
+    margin-bottom: 18px;
+}
+.form-check-group {
+    display: flex;
+    align-items: center;
+}
+.form-check-group .form-check-input {
+    margin-right: 8px;
+    width: auto;
+}
+.form-check-group .form-check-label {
+    margin-bottom: 0;
+    color: var(--text-color);
+    font-weight: normal;
+}
+.auth-switch-link {
+    margin-top: 20px;
+    font-size: 0.9em;
+}
+.auth-switch-link a {
+    color: var(--link-color);
+    text-decoration: none;
+}
+.auth-switch-link a:hover {
+    color: var(--link-hover-color);
+    text-decoration: underline;
+}
+.errors {
+    list-style: none;
+    padding: 0;
+    margin-top: 5px;
+}
+.error-message {
+    color: var(--error-color);
+    font-size: 0.85em;
+}
 
-/* 动画 */
+.dashboard-container {
+    max-width: 900px;
+}
+.task-list {
+    margin-top: 20px;
+    text-align: left;
+}
+.task-item {
+    background-color: #222;
+    border: 1px solid #444;
+    border-left: 5px solid var(--text-color);
+    padding: 15px;
+    border-radius: 5px;
+    margin-bottom: 15px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+}
+.task-item:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 4px 15px rgba(0, 255, 255, 0.2);
+}
+.task-item.task-success { border-left-color: var(--success-color); }
+.task-item.task-failure { border-left-color: var(--error-color); }
+.task-item.task-processing { border-left-color: var(--warning-color); }
+
+.task-info p {
+    margin: 5px 0;
+    font-size: 0.9em;
+    color: #ccc;
+}
+.task-info p strong {
+    color: var(--text-color);
+}
+.status-text-success { color: var(--success-color); font-weight: bold; }
+.status-text-failure { color: var(--error-color); font-weight: bold; }
+.status-text-processing, .status-text-pending, .status-text-started, .status-text-complete { 
+    color: var(--warning-color); font-weight: bold; 
+}
+.status-text-complete { color: var(--success-color); } /* Make 'COMPLETE' green */
+
+
+.error-text { color: var(--error-color); font-size: 0.85em; }
+.warning-text { color: var(--warning-color); font-size: 0.85em; }
+
+.task-actions .btn-action {
+    padding: 6px 12px;
+    font-size: 0.85em;
+    margin-left: 10px;
+    text-transform: none;
+    letter-spacing: 0.5px;
+}
+.btn-view-status {
+    border-color: var(--text-color);
+    color: var(--text-color);
+}
+.btn-view-status:hover {
+    background-color: var(--text-color);
+    color: var(--bg-color);
+}
+.btn-download-task {
+    border-color: var(--success-color);
+    background-color: var(--success-color);
+    color: var(--bg-color);
+}
+.btn-download-task:hover {
+    box-shadow: 0 0 5px var(--success-color), 0 0 15px var(--success-color);
+}
+.btn-link {
+    color: var(--link-color);
+    text-decoration: underline;
+}
+.btn-link:hover {
+    color: var(--link-hover-color);
+}
+
+#audio-preview-container {
+    margin-top: 15px;
+    text-align: left;
+}
+#audio-preview-player {
+    width: 100%;
+    height: 40px;
+    background-color: #222;
+    border-radius: 5px;
+    border: 1px solid var(--glow-color);
+    margin-bottom: 5px;
+}
+#audio-preview-player::-webkit-media-controls-panel {
+  background-color: #222;
+}
+#preview-status-message {
+    font-size: 0.9em;
+    min-height: 1.2em;
+}
+
+/* --- Footer --- */
+.site-footer {
+    width: 100%; /* Ensure footer spans full width */
+    background-color: #111;
+    padding: 20px 0;
+    margin-top: auto; /* Pushes footer to the bottom if content is short */
+    border-top: 1px solid var(--accent-color);
+    text-align: center; /* Centers the <p> tag if it's inline-block or text */
+    font-size: 0.9em;
+    color: #888;
+    box-sizing: border-box; /* Include padding in width calculation */
+}
+
+.footer-container { /* This class is on the div inside the footer in base.html */
+    max-width: 1200px; /* Match navbar content width or adjust as needed */
+    margin: 0 auto; /* Center the container itself */
+    padding: 0 20px; /* Add some padding if desired */
+    text-align: center; /* Ensure text within this container is centered */
+}
+
+.site-footer p {
+    margin: 0;
+}
+
+.note {
+    font-size: 0.9em;
+    color: #aaaaaa;
+    margin-top: 15px;
+    line-height: 1.4;
+}
+.error-page-container {
+    text-align: center;
+}
+
 @keyframes flicker {
     0%, 18%, 22%, 25%, 53%, 57%, 100% {
         text-shadow: 0 0 5px var(--glow-color), 0 0 10px var(--glow-color), 0 0 15px var(--glow-color), 0 0 20px var(--glow-spread);
@@ -248,7 +524,6 @@ h1 {
         opacity: 0.8;
     }
 }
-
 @keyframes pulse {
     0% {
         box-shadow: 0 0 5px var(--success-color);
@@ -261,45 +536,26 @@ h1 {
     }
 }
 
-.note {
-    font-size: 0.9em;
-    color: #aaaaaa;
-    margin-top: 15px;
+@media (max-width: 768px) {
+    .container, .flash-messages-container, .footer-container { /* Apply to all main content containers */
+        width: 95%; /* More width on smaller screens */
+        padding-left: 15px;
+        padding-right: 15px;
+    }
+    h1 { font-size: 1.8em; }
+    .subtitle { font-size: 1em; }
+    .navbar { flex-direction: column; align-items: center; }
+    .navbar-nav { margin-top: 10px; flex-direction: column; width:100%;}
+    .nav-item.nav-link { margin-left: 0; margin-bottom: 5px; width: 90%; text-align: center; }
+    .username-display { margin-right: 0; margin-bottom: 10px; }
+    .task-item { flex-direction: column; align-items: flex-start; }
+    .task-actions { margin-top: 10px; width: 100%; display: flex; justify-content: space-around; }
+    .task-actions .btn-action { margin-left: 0; flex-grow: 1; margin: 0 5px; }
 }
-
-/* 试听播放器区域的样式 */
-#audio-preview-container {
-    margin-top: 15px;
-    text-align: left; /* 或 center，根据喜好 */
-}
-
-#audio-preview-player {
-    width: 100%; /* 使播放器宽度适应容器 */
-    height: 40px; /* 标准的音频播放器高度 */
-    background-color: #222; /* 暗色背景 */
-    border-radius: 5px;
-    border: 1px solid var(--glow-color);
-}
-
-/* 自定义音频播放器控件颜色 (部分浏览器支持) */
-#audio-preview-player::-webkit-media-controls-panel {
-  background-color: #222;
-  color: var(--text-color);
-}
-
-#audio-preview-player::-webkit-media-controls-play-button,
-#audio-preview-player::-webkit-media-controls-timeline,
-#audio-preview-player::-webkit-media-controls-current-time-display,
-#audio-preview-player::-webkit-media-controls-time-remaining-display,
-#audio-preview-player::-webkit-media-controls-mute-button,
-#audio-preview-player::-webkit-media-controls-volume-slider {
-  filter: invert(1) sepia(100%) saturate(10000%) hue-rotate(180deg) brightness(1.2); /* 尝试用滤镜改变颜色为青色 */
-}
-
-/* 试听状态消息 */
-#preview-status-message {
-    font-size: 0.9em;
-    color: var(--warning-color);
-    margin-top: 5px;
-    min-height: 1em; /* 防止消息出现时布局跳动 */
+@media (max-width: 480px) {
+    .btn-submit, .btn-download, .btn-back, .btn-listen, .btn-action, .auth-btn {
+        font-size: 14px; padding: 10px 15px; letter-spacing: 1px;
+    }
+    .voice-selection-group { flex-direction: column; align-items: stretch; }
+    .btn-listen { margin-top: 10px; width: 100%; }
 }
