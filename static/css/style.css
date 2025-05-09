@@ -9,6 +9,8 @@
     --error-color: #ff0000;
     --success-color: #00ff00;
     --warning-color: #ffff00;
+    --progress-bar-bg: #333; /* 进度条背景色 */
+    --progress-bar-fill-color: var(--glow-color); /* 进度条填充色 */
 }
 
 body {
@@ -57,6 +59,18 @@ h1 {
     text-align: left;
 }
 
+/* 为试听按钮和下拉菜单布局 */
+.voice-selection-group {
+    display: flex;
+    align-items: center;
+    gap: 10px; /* 元素之间的间隙 */
+}
+
+.voice-select-wrapper {
+    flex-grow: 1; /* 让下拉菜单占据更多空间 */
+}
+
+
 .file-label, .voice-label {
     display: block;
     margin-bottom: 8px;
@@ -83,7 +97,7 @@ h1 {
 }
 
 .voice-select {
-     width: calc(100% - 10px); /* 调整宽度 */
+     width: 100%; /* 调整宽度以适应父容器 */
      padding: 10px;
      border: 1px solid var(--glow-color);
      background-color: #333;
@@ -97,7 +111,7 @@ h1 {
 }
 
 
-.btn-submit, .btn-download, .btn-back {
+.btn-submit, .btn-download, .btn-back, .btn-listen { /* 添加 .btn-listen */
     position: relative;
     display: inline-block;
     padding: 12px 25px;
@@ -116,7 +130,15 @@ h1 {
     font-family: 'Courier New', Courier, monospace;
 }
 
-.btn-submit:hover, .btn-download:hover, .btn-back:hover {
+.btn-listen { /* 试听按钮特定样式 */
+    padding: 8px 15px;
+    font-size: 14px;
+    margin-top: 0; /* 调整边距使其与下拉框对齐 */
+    letter-spacing: 1px;
+}
+
+
+.btn-submit:hover, .btn-download:hover, .btn-back:hover, .btn-listen:hover { /* 添加 .btn-listen:hover */
     background: var(--glow-color);
     color: var(--bg-color);
     box-shadow: 0 0 5px var(--glow-color), 0 0 25px var(--glow-color), 0 0 50px var(--glow-color), 0 0 100px var(--glow-color);
@@ -176,6 +198,45 @@ h1 {
     text-shadow: 0 0 3px;
 }
 
+/* 进度条样式 */
+.progress-container {
+    width: 100%;
+    background-color: var(--progress-bar-bg);
+    border-radius: 5px;
+    margin-top: 15px;
+    margin-bottom: 15px;
+    padding: 3px; /* 轻微内边距，使填充条不紧贴边框 */
+    display: flex; /* 使用 flex 布局对齐进度条和百分比文本 */
+    align-items: center; /* 垂直居中对齐 */
+    border: 1px solid var(--glow-color); /* 与其他元素一致的边框 */
+}
+
+.progress-bar {
+    flex-grow: 1; /* 让进度条本身占据可用空间 */
+    height: 20px;
+    background-color: var(--progress-bar-bg); /* 背景色保持一致或略深 */
+    border-radius: 3px; /* 内部进度条的圆角 */
+    overflow: hidden; /* 确保填充条不会溢出圆角 */
+}
+
+.progress-bar-fill {
+    width: 0%; /* 初始宽度为0 */
+    height: 100%;
+    background-color: var(--progress-bar-fill-color);
+    border-radius: 3px; /* 与父元素一致的圆角 */
+    transition: width 0.3s ease-in-out; /* 平滑过渡效果 */
+    box-shadow: 0 0 5px var(--progress-bar-fill-color), 0 0 10px var(--progress-bar-fill-color); /* 发光效果 */
+}
+
+.progress-percentage-text {
+    margin-left: 10px; /* 百分比文本与进度条的间距 */
+    color: var(--text-color);
+    font-size: 0.9em;
+    min-width: 40px; /* 给百分比文本一个最小宽度，防止跳动 */
+    text-align: right; /* 如果希望数字靠右对齐 */
+}
+
+
 /* 动画 */
 @keyframes flicker {
     0%, 18%, 22%, 25%, 53%, 57%, 100% {
@@ -204,4 +265,41 @@ h1 {
     font-size: 0.9em;
     color: #aaaaaa;
     margin-top: 15px;
+}
+
+/* 试听播放器区域的样式 */
+#audio-preview-container {
+    margin-top: 15px;
+    text-align: left; /* 或 center，根据喜好 */
+}
+
+#audio-preview-player {
+    width: 100%; /* 使播放器宽度适应容器 */
+    height: 40px; /* 标准的音频播放器高度 */
+    background-color: #222; /* 暗色背景 */
+    border-radius: 5px;
+    border: 1px solid var(--glow-color);
+}
+
+/* 自定义音频播放器控件颜色 (部分浏览器支持) */
+#audio-preview-player::-webkit-media-controls-panel {
+  background-color: #222;
+  color: var(--text-color);
+}
+
+#audio-preview-player::-webkit-media-controls-play-button,
+#audio-preview-player::-webkit-media-controls-timeline,
+#audio-preview-player::-webkit-media-controls-current-time-display,
+#audio-preview-player::-webkit-media-controls-time-remaining-display,
+#audio-preview-player::-webkit-media-controls-mute-button,
+#audio-preview-player::-webkit-media-controls-volume-slider {
+  filter: invert(1) sepia(100%) saturate(10000%) hue-rotate(180deg) brightness(1.2); /* 尝试用滤镜改变颜色为青色 */
+}
+
+/* 试听状态消息 */
+#preview-status-message {
+    font-size: 0.9em;
+    color: var(--warning-color);
+    margin-top: 5px;
+    min-height: 1em; /* 防止消息出现时布局跳动 */
 }

@@ -14,6 +14,13 @@
         {% if error %}
             <div class="message error">{{ error }}</div>
         {% endif %}
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                <div class="message {{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
 
         <form action="{{ url_for('index') }}" method="post" enctype="multipart/form-data" class="upload-form">
             <div class="form-group">
@@ -24,17 +31,24 @@
 
             <div class="form-group">
                  <label for="voice_id" class="voice-label">选择旁白语音:</label>
-                 <select id="voice_id" name="voice_id" required class="voice-select">
-                     {% if voices %}
-                         {% for voice in voices %}
-                             <option value="{{ voice.get('id') }}">{{ voice.get('name', '未知语音') }} ({{ voice.get('lang', '?') }})</option>
-                         {% endfor %}
-                     {% else %}
-                          <option value="">暂无可用语音 (请检查后台配置)</option>
-                     {% endif %}
-                 </select>
+                 <div class="voice-selection-group"> <div class="voice-select-wrapper">
+                         <select id="voice_id" name="voice_id" required class="voice-select">
+                             {% if voices %}
+                                 {% for voice in voices %}
+                                     <option value="{{ voice.get('id') }}">{{ voice.get('name', '未知语音') }} ({{ voice.get('lang', '?') }})</option>
+                                 {% endfor %}
+                             {% else %}
+                                  <option value="">暂无可用语音 (请检查后台配置)</option>
+                             {% endif %}
+                         </select>
+                    </div>
+                    <button type="button" id="listen-voice-btn" class="btn-listen">试听</button>
+                 </div>
+                 <div id="audio-preview-container" style="display: none;">
+                     <audio id="audio-preview-player" controls></audio>
+                     <p id="preview-status-message"></p>
+                 </div>
              </div>
-
 
             <button type="submit" class="btn-submit">
                 <span class="btn-text">开始转换</span>
@@ -45,8 +59,6 @@
         <p class="note">注意: 转换过程需要一定时间，请耐心等待。</p>
         <p class="note">请确保服务器环境已安装并配置好 LibreOffice、Poppler 和 FFmpeg。</p>
         <p class="note">语音合成需要服务器联网访问微软 Edge TTS 服务。</p>
-
-
     </div>
 
     <script>
@@ -60,6 +72,62 @@
             } else {
                 fileNameSpan.textContent = '未选择文件';
             }
+        });
+
+        // 语音试听功能
+        const listenButton = document.getElementById('listen-voice-btn');
+        const voiceSelect = document.getElementById('voice_id');
+        const audioPreviewContainer = document.getElementById('audio-preview-container');
+        const audioPlayer = document.getElementById('audio-preview-player');
+        const previewStatusMessage = document.getElementById('preview-status-message');
+
+        listenButton.addEventListener('click', function() {
+            const selectedVoiceId = voiceSelect.value;
+            if (!selectedVoiceId) {
+                previewStatusMessage.textContent = '请先选择一个语音！';
+                previewStatusMessage.style.color = 'var(--warning-color)';
+                audioPreviewContainer.style.display = 'block'; // 显示消息容器
+                audioPlayer.style.display = 'none'; // 隐藏播放器
+                return;
+            }
+
+            previewStatusMessage.textContent = '正在获取试听音频...';
+            previewStatusMessage.style.color = 'var(--text-color)';
+            audioPreviewContainer.style.display = 'block';
+            audioPlayer.style.display = 'none'; // 获取时先隐藏播放器
+            listenButton.disabled = true; // 防止重复点击
+            listenButton.textContent = '加载中...';
+
+
+            fetch(`/preview_tts/${selectedVoiceId}`)
+                .then(response => {
+                    if (!response.ok) {
+                        return response.json().then(err => { // 尝试解析 JSON 错误信息
+                            throw new Error(err.error || `服务器错误: ${response.status}`);
+                        }).catch(() => { // 如果 JSON 解析失败，则抛出通用错误
+                            throw new Error(`获取试听音频失败，服务器状态: ${response.status}`);
+                        });
+                    }
+                    return response.blob(); // 获取音频 Blob 数据
+                })
+                .then(blob => {
+                    const audioUrl = URL.createObjectURL(blob);
+                    audioPlayer.src = audioUrl;
+                    audioPlayer.style.display = 'block'; // 显示播放器
+                    audioPlayer.play();
+                    previewStatusMessage.textContent = '试听准备就绪。';
+                    previewStatusMessage.style.color = 'var(--success-color)';
+                })
+                .catch(error => {
+                    console.error('试听功能错误:', error);
+                    previewStatusMessage.textContent = `试听失败: ${error.message}`;
+                    previewStatusMessage.style.color = 'var(--error-color)';
+                    audioPlayer.style.display = 'none';
+                })
+                .finally(() => {
+                    listenButton.disabled = false; // 恢复按钮
+                    listenButton.textContent = '试听';
+                });
         });
     </script>
 </body>
