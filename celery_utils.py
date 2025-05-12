@@ -1,59 +1,50 @@
 # celery_utils.py
+import logging
 from celery import Celery
-# app.py 中的 Flask app 实例将在这里被导入和使用
-# 但为了避免在顶层直接导入 app (可能导致循环)，我们将在函数内部导入
 
-def create_celery_app(flask_app=None):
+logger = logging.getLogger(__name__)
+
+def create_celery_app(flask_app_instance): # 参数名明确表示是 Flask app 实例
     """
     创建并配置一个 Celery 应用实例。
-    如果提供了 Flask app 实例，则将其配置传递给 Celery。
+    必须传递有效的 Flask app 实例。
     """
-    if flask_app is None:
-        # 如果在 Celery worker 启动时 (celery_app.py 调用) 没有直接传递 flask_app,
-        # 我们需要能够导入它。这依赖于 celery_app.py 中对 sys.path 的修改。
-        from app import app as current_flask_app # 导入 Flask app
-        flask_app = current_flask_app
+    if flask_app_instance is None:
+        logger.critical("CRITICAL: create_celery_app 必须接收一个有效的 Flask app 实例！")
+        # 返回一个基础的、可能无法正常工作的 Celery 实例
+        return Celery('ppt2video_tasks_critical_flask_app_missing_in_utils')
 
     # 从 Flask app 的配置中获取 Celery broker 和 backend URL
-    # 这要求 Flask app 配置中已经有这些值 (例如从 config.ini 加载)
-    broker_url = flask_app.config.get('CELERY_BROKER_URL', 'redis://localhost:6379/0')
-    result_backend = flask_app.config.get('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')
+    broker_url = flask_app_instance.config.get('CELERY_BROKER_URL', 'redis://localhost:6379/0')
+    result_backend = flask_app_instance.config.get('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')
     
-    # 从 Flask app 的配置中获取 configparser 对象 (如果已存储)
-    # 这是为了让 Celery 任务可以访问原始的 config.ini 内容
-    app_config_parser = flask_app.config.get('APP_CONFIG')
+    # 从 Flask app 的配置中获取原始的 configparser 对象
+    app_config_parser = flask_app_instance.config.get('APP_CONFIG')
 
-    celery = Celery(
-        flask_app.import_name, # 使用 Flask app 的 import_name 作为 Celery app 的名称
+    celery_instance = Celery(
+        flask_app_instance.import_name, # 使用 Flask app 的 import_name 作为 Celery app 的名称
         broker=broker_url,
-        backend=result_backend,
-        include=['tasks'] # 指定包含任务的模块
+        backend=result_backend
+        # `include` 参数不在这里设置，任务的发现由 celery_app.py 中的 `import tasks` 处理
     )
 
     # 将 Flask app 的配置更新到 Celery 的配置中
-    celery.conf.update(flask_app.config)
+    celery_instance.conf.update(flask_app_instance.config)
     
-    # 如果 app_config_parser 存在，也将其存入 Celery 配置
     if app_config_parser:
-        celery.conf.APP_CONFIG = app_config_parser
+        celery_instance.conf.APP_CONFIG = app_config_parser # 存储原始 configparser 对象
+        logger.info("Celery 配置已更新，并存储了 APP_CONFIG (configparser 对象)。")
     else:
-        # 作为备用，尝试从 celery_app.py 加载（如果那里有）
-        try:
-            from celery_app import config as celery_app_config_parser
-            celery.conf.APP_CONFIG = celery_app_config_parser
-            logging.info("Celery 使用了 celery_app.py 中加载的 configparser 对象。")
-        except (ImportError, AttributeError):
-            logging.warning("Celery 无法从 Flask app 或 celery_app.py 获取 configparser 对象。")
-
+        logger.warning("Celery 配置：未从 Flask app 获取到 APP_CONFIG (configparser 对象)。")
 
     # 定义一个 Celery Task 基类，它会自动推送 Flask 应用上下文
-    class ContextTask(celery.Task):
+    class ContextTask(celery_instance.Task):
         abstract = True
         def __call__(self, *args, **kwargs):
-            with flask_app.app_context():
+            # 使用传递进来的 flask_app_instance 来创建上下文
+            with flask_app_instance.app_context():
                 return super().__call__(*args, **kwargs)
 
-    celery.Task = ContextTask # 将自定义的 Task 类设为 Celery 的默认 Task 类
-    return celery
-
-# 在 celery_app.py 中，我们将导入这个函数来创建 celery 实例
+    celery_instance.Task = ContextTask
+    logger.info(f"Celery app '{celery_instance.main}' created with ContextTask using Flask app '{flask_app_instance.name}'.")
+    return celery_instance
